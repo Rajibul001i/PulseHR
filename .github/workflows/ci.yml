@@ -1,0 +1,59 @@
+# Resolves P1-21.
+#
+# The proposal requires code-review approval before merge (§6.4), but nothing runs the
+# tests. A reviewer approving code that does not compile is a normal Friday. Branch
+# protection should require this workflow green — a policy is not a gate.
+
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # node:sqlite requires Node 24 (ADR-009).
+          node-version: '24'
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck (TypeScript strict, all workspaces)
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Seed database
+        run: npm run seed
+
+      - name: Run worker jobs
+        run: |
+          npm run job:score
+          npm run job:payroll -- 2026 7
+
+      - name: Start API
+        run: npm run start -w @pulsehr/api &
+
+      - name: Wait for API
+        run: npx wait-on http://localhost:4000/api/employees --timeout 30000 || sleep 5
+
+      - name: End-to-end smoke test
+        run: node scripts/smoke.mjs
+
+      - name: Dependency audit
+        run: npm audit --audit-level=high
+        continue-on-error: true
