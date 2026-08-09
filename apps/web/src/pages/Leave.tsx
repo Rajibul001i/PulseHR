@@ -1,13 +1,14 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { get, post, type LeaveRequestDto } from '../api';
+import { EmptyState, TableSkeleton } from '../components/Feedback';
+import { useToast } from '../components/Toast';
 
 const TYPES = ['EARNED', 'CASUAL', 'SICK', 'LWP'] as const;
 
 export function Leave({ role }: { role: string }) {
-  const [requests, setRequests] = useState<LeaveRequestDto[]>([]);
+  const toast = useToast();
+  const [requests, setRequests] = useState<LeaveRequestDto[] | null>(null);
   const [balances, setBalances] = useState<Record<string, number>>({});
-  const [error, setError] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
   const [form, setForm] = useState({
     leaveType: 'EARNED' as (typeof TYPES)[number],
     startDate: '',
@@ -26,7 +27,7 @@ export function Leave({ role }: { role: string }) {
         setBalances({}); // an HR admin has no employee record of their own
       }
     } catch (err) {
-      setError((err as Error).message);
+      toast.error((err as Error).message);
     }
   }
 
@@ -37,35 +38,40 @@ export function Leave({ role }: { role: string }) {
 
   async function submit(e: FormEvent) {
     e.preventDefault();
-    setError(null);
-    setMessage(null);
     try {
-      await post('/leave/requests', form);
-      setMessage('Request submitted.');
+      const r = await post<{ days: number }>('/leave/requests', form);
+      toast.success(`Request submitted for ${r.days} day${r.days === 1 ? '' : 's'}.`);
       setForm({ ...form, startDate: '', endDate: '', reason: '' });
       await load();
     } catch (err) {
-      setError((err as Error).message);
+      toast.error((err as Error).message);
     }
   }
 
   async function decide(id: string, decision: 'APPROVE' | 'REJECT') {
-    setError(null);
-    setMessage(null);
+    // Optimistic: the row updates immediately and rolls back if the server refuses.
+    const snapshot = requests;
+    setRequests(
+      (rs) =>
+        rs?.map((r) =>
+          r.id === id ? { ...r, status: decision === 'APPROVE' ? 'APPROVED' : 'REJECTED' } : r,
+        ) ?? rs,
+    );
     try {
       const res = await post<{ status: string; balanceAfter?: number }>(
         `/leave/requests/${id}/decision`,
         { decision },
       );
-      setMessage(
+      toast.success(
         res.balanceAfter === undefined
           ? `Request ${res.status.toLowerCase()}.`
-          : `Approved. Remaining balance: ${res.balanceAfter} day(s).`,
+          : `Approved. ${res.balanceAfter} day${res.balanceAfter === 1 ? '' : 's'} remaining.`,
       );
       await load();
     } catch (err) {
-      // A 409 here is the concurrency guard doing its job (P0-7).
-      setError((err as Error).message);
+      // A 409 here is the concurrency guard doing its job (P0-7) — roll the row back.
+      setRequests(snapshot);
+      toast.error((err as Error).message);
     }
   }
 
@@ -75,9 +81,6 @@ export function Leave({ role }: { role: string }) {
       <p className="page-sub">
         Balances are derived from an append-only ledger, never stored as a mutable column.
       </p>
-      {error && <p className="error">{error}</p>}
-      {message && <p className="notice">{message}</p>}
-
       {Object.keys(balances).length > 0 && (
         <div className="grid grid-4">
           {Object.entries(balances).map(([type, days]) => (
@@ -138,6 +141,19 @@ export function Leave({ role }: { role: string }) {
       </form>
 
       <h2>{canDecide ? 'Requests' : 'My requests'}</h2>
+      {requests === null ? (
+        <TableSkeleton rows={4} cols={6} />
+      ) : requests.length === 0 ? (
+        <EmptyState
+          icon="🌴"
+          title={canDecide ? 'No leave requests' : 'You have no leave requests'}
+          body={
+            canDecide
+              ? 'Requests submitted by your team will appear here for approval.'
+              : 'Submit a request using the form above and it will be routed to your line manager.'
+          }
+        />
+      ) : (
       <div className="card">
         <table>
           <thead>
@@ -178,16 +194,10 @@ export function Leave({ role }: { role: string }) {
                 )}
               </tr>
             ))}
-            {requests.length === 0 && (
-              <tr>
-                <td colSpan={canDecide ? 7 : 6} className="notice">
-                  No requests.
-                </td>
-              </tr>
-            )}
           </tbody>
         </table>
       </div>
+      )}
     </>
   );
 }

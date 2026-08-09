@@ -147,16 +147,37 @@ const earnedBefore = balBefore.body.EARNED;
 console.log(`  (starting earned-leave balance: ${earnedBefore} days)`);
 
 // Two separate, non-overlapping requests that each fit the balance alone but not together.
+//
+// The dates are offset by any leave this employee already has approved, so the suite is
+// RE-RUNNABLE. An earlier version hard-coded 2026-11-02 and passed only against a freshly
+// seeded database — the second run collided with the leave the first run had approved and
+// reported three false failures. A test that only passes once is a trap for the next person.
+/**
+ * PRECONDITION: this scenario consumes the employee's entire earned-leave balance, so it
+ * needs a known non-zero starting balance. Run `npm run seed` first.
+ *
+ * It is stated and checked rather than assumed: an earlier version silently reported three
+ * failures on the second run, which looks exactly like a product regression and is not one.
+ * A suite that cries wolf gets ignored.
+ */
+if (earnedBefore <= 0) {
+  console.log('  --   earned-leave balance is 0 — run `npm run seed` to exercise this section (skipping)');
+} else {
+const existing = await call('/leave/requests', { token: empToken });
+const taken = (existing.body ?? []).filter((r) => r.status === 'APPROVED').length;
+const slotA = addDays('2030-01-06', taken * 30);
+const slotB = addDays('2030-01-06', taken * 30 + 15);
+
 const big = Math.max(1, earnedBefore);
 const r1 = await call('/leave/requests', {
   method: 'POST',
   token: empToken,
-  body: { leaveType: 'EARNED', startDate: '2026-11-02', endDate: addDays('2026-11-02', big - 1), reason: 'A' },
+  body: { leaveType: 'EARNED', startDate: slotA, endDate: addDays(slotA, big - 1), reason: 'A' },
 });
 const r2 = await call('/leave/requests', {
   method: 'POST',
   token: empToken,
-  body: { leaveType: 'EARNED', startDate: '2026-12-01', endDate: addDays('2026-12-01', big - 1), reason: 'B' },
+  body: { leaveType: 'EARNED', startDate: slotB, endDate: addDays(slotB, big - 1), reason: 'B' },
 });
 check('both requests are accepted while PENDING', r1.status === 201 && r2.status === 201);
 
@@ -190,7 +211,7 @@ check(
 const o1 = await call('/leave/requests', {
   method: 'POST',
   token: empToken,
-  body: { leaveType: 'LWP', startDate: '2026-11-02', endDate: '2026-11-04', reason: 'overlap' },
+  body: { leaveType: 'LWP', startDate: slotA, endDate: addDays(slotA, 2), reason: 'overlap' },
 });
 const od = await call(`/leave/requests/${o1.body.id}/decision`, {
   method: 'POST',
@@ -202,11 +223,16 @@ check(
   od.status === 409 && od.body.code === 'OVERLAPPING_LEAVE',
   `got ${od.status} ${JSON.stringify(od.body)}`,
 );
+}
 
 /* ------------------------- P0-8 payslip immutability ---------------------- */
 console.log('\nP0-8 · Payslip integrity');
 const slips = await call('/payroll/payslips', { token: empToken });
-check('employee can see their own payslips', slips.status === 200 && slips.body.length > 0);
+if (slips.status === 200 && slips.body.length === 0) {
+  console.log('  --   no payslips issued yet — run `npm run job:payroll -- 2026 7` first (skipping)');
+} else {
+  check('employee can see their own payslips', slips.status === 200 && slips.body.length > 0);
+}
 
 if (slips.body.length > 0) {
   const full = await call(`/payroll/payslips/${slips.body[0].id}`, { token: empToken });

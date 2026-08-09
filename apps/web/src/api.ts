@@ -100,6 +100,65 @@ export const post = <T>(path: string, body?: unknown) =>
 export type Role = 'EMPLOYEE' | 'MANAGER' | 'HR_ADMIN';
 export type RiskBand = 'LOW' | 'MODERATE' | 'ELEVATED' | 'HIGH';
 
+export type Tier = 'STARTER' | 'GROWTH' | 'ENTERPRISE';
+export type PlanStatus = 'TRIAL' | 'ACTIVE' | 'PAST_DUE' | 'CANCELLED';
+
+export type PlanFeatureKey =
+  | 'attendance'
+  | 'leave'
+  | 'payroll'
+  | 'noticeboard'
+  | 'okr'
+  | 'ats'
+  | 'attrition_watchlist'
+  | 'attrition_full'
+  | 'api_access'
+  | 'bias_audit';
+
+export interface PlanFeatureDto {
+  key: PlanFeatureKey;
+  label: string;
+  minimumTier: Tier;
+  pitch: string;
+}
+
+export interface SubscriptionDto {
+  organisation: string | null;
+  tier: Tier;
+  status: PlanStatus;
+  trialEndsOn: string | null;
+  seats: {
+    withinLimit: boolean;
+    seatsUsed: number;
+    seatLimit: number;
+    remaining: number;
+    approachingLimit: boolean;
+  };
+  entitlements: PlanFeatureKey[];
+  catalogue: PlanFeatureDto[];
+  pricePaisa: number;
+}
+
+/**
+ * The body of a 402 Payment Required.
+ *
+ * 402 is deliberately distinct from 403: 403 means "you will never have this", 402 means
+ * "your organisation could buy this". Only the second renders an upgrade prompt.
+ */
+export interface UpgradeRequired {
+  error: string;
+  code: string;
+  feature?: PlanFeatureKey;
+  featureLabel?: string;
+  currentTier: Tier;
+  requiredTier?: Tier;
+  upgrade?: { tier: Tier; pitch?: string };
+}
+
+export function isUpgradeRequired(err: unknown): err is ApiError & { body: UpgradeRequired } {
+  return err instanceof ApiError && err.status === 402;
+}
+
 export interface Me {
   principal: { userId: string; organisationId: string; role: Role; employeeId: string | null };
   employee: Record<string, unknown> | null;

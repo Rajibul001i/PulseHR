@@ -386,4 +386,14 @@ seedOrganisation({
   seed: 991122,
 });
 
+// A third tenant on STARTER, so the locked-navigation and upgrade paths are demonstrable.
+// With only Growth and Enterprise seeded there was no way to see a gated feature.
+seedOrganisation({
+  name: 'Dhaka Craft Apparels Ltd.',
+  tier: 'STARTER',
+  emailDomain: 'dhakacraft.test',
+  profiles: PROFILES.slice(0, 4).map((p) => ({ ...p, name: `${p.name} (DC)` })),
+  seed: 550011,
+});
+
 console.log('[seed] done.');

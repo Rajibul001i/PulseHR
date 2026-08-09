@@ -1,156 +1,210 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { get, post, type AtRiskRow, type LeaveRequestDto, type Me } from '../api';
+import {
+  get,
+  isUpgradeRequired,
+  post,
+  type AtRiskRow,
+  type LeaveRequestDto,
+  type Me,
+  type SubscriptionDto,
+  type UpgradeRequired,
+} from '../api';
+import { StatSkeleton, TableSkeleton, EmptyState, UpgradePrompt } from '../components/Feedback';
+import { useToast } from '../components/Toast';
 
-export function Dashboard({ role }: { role: string }) {
+export function Dashboard({
+  role,
+  subscription,
+}: {
+  role: string;
+  subscription: SubscriptionDto | null;
+}) {
+  const toast = useToast();
   const [me, setMe] = useState<Me | null>(null);
   const [atRisk, setAtRisk] = useState<AtRiskRow[] | null>(null);
+  const [gated, setGated] = useState<UpgradeRequired | null>(null);
   const [pending, setPending] = useState<LeaveRequestDto[]>([]);
   const [scoring, setScoring] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
   const isHr = role === 'HR_ADMIN';
 
-  async function load() {
+  const load = useCallback(async () => {
     try {
       setMe(await get<Me>('/me'));
-      if (isHr) setAtRisk(await get<AtRiskRow[]>('/attrition/at-risk?limit=8'));
       if (role !== 'EMPLOYEE') {
         setPending(await get<LeaveRequestDto[]>('/leave/requests?status=PENDING'));
       }
+      if (isHr) {
+        try {
+          setAtRisk(await get<AtRiskRow[]>('/attrition/at-risk?limit=8'));
+          setGated(null);
+        } catch (err) {
+          // 402 is not an error state — it is a sales surface. See docs/11 §4.
+          if (isUpgradeRequired(err)) setGated(err.body);
+          else throw err;
+        }
+      }
     } catch (err) {
-      setError((err as Error).message);
+      toast.error((err as Error).message);
+    } finally {
+      setLoading(false);
     }
-  }
+  }, [role, isHr, toast]);
 
   useEffect(() => {
     void load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [role]);
+  }, [load]);
 
   async function rescore() {
     setScoring(true);
     try {
-      // ADR-004: this enqueues a job; it does not run scoring in the request path.
+      // ADR-004: enqueue a job; scoring never runs in the request path.
       const { jobId } = await post<{ jobId: string }>('/attrition/runs');
       for (let i = 0; i < 40; i++) {
         await new Promise((r) => setTimeout(r, 250));
         const job = await get<{ state: string }>(`/jobs/${jobId}`);
-        if (job.state === 'DONE' || job.state === 'FAILED') break;
+        if (job.state === 'DONE') {
+          toast.success('Scoring batch complete.');
+          break;
+        }
+        if (job.state === 'FAILED') {
+          toast.error('Scoring batch failed.');
+          break;
+        }
       }
       await load();
     } catch (err) {
-      setError((err as Error).message);
+      toast.error((err as Error).message);
     } finally {
       setScoring(false);
     }
   }
 
   const balances = me?.balances ?? {};
-  const bands = (atRisk ?? []).reduce<Record<string, number>>((acc, r) => {
-    acc[r.band] = (acc[r.band] ?? 0) + 1;
-    return acc;
-  }, {});
 
   return (
     <>
       <h1>Dashboard</h1>
       <p className="page-sub">
-        {me?.employee ? String(me.employee.full_name) : 'HR Administrator'} · {role.replace('_', ' ')}
+        {me?.employee ? String(me.employee.full_name) : 'HR Administrator'} ·{' '}
+        {role.replace('_', ' ')}
+        {subscription && ` · ${subscription.organisation}`}
       </p>
-      {error && <p className="error">{error}</p>}
 
-      <div className="grid grid-4">
-        <div className="card">
-          <div className="stat-label">Earned leave</div>
-          <div className="stat-value">{balances.EARNED ?? '—'}</div>
-          <div className="stat-note">§117 · accrued 1 per 18 days worked</div>
+      {subscription?.seats.approachingLimit && (
+        <div className="banner warn">
+          <strong>{subscription.seats.remaining} seat
+          {subscription.seats.remaining === 1 ? '' : 's'} remaining.</strong>{' '}
+          <Link to="/plan">Review your plan</Link> before onboarding more employees.
         </div>
-        <div className="card">
-          <div className="stat-label">Casual leave</div>
-          <div className="stat-value">{balances.CASUAL ?? '—'}</div>
-          <div className="stat-note">§115 · 10 days/year, lapses</div>
-        </div>
-        <div className="card">
-          <div className="stat-label">Sick leave</div>
-          <div className="stat-value">{balances.SICK ?? '—'}</div>
-          <div className="stat-note">§116 · 14 days/year</div>
-        </div>
-        <div className="card">
-          <div className="stat-label">{role === 'EMPLOYEE' ? 'My requests' : 'Pending approvals'}</div>
-          <div className="stat-value">{pending.length || (role === 'EMPLOYEE' ? '—' : 0)}</div>
-          <div className="stat-note">
-            {role === 'EMPLOYEE' ? 'See Leave' : <Link to="/leave">Review queue →</Link>}
+      )}
+
+      {loading ? (
+        <StatSkeleton />
+      ) : (
+        <div className="grid grid-4">
+          <div className="card">
+            <div className="stat-label">Earned leave</div>
+            <div className="stat-value">{balances.EARNED ?? '—'}</div>
+            <div className="stat-note">§117 · accrued 1 per 18 days worked</div>
+          </div>
+          <div className="card">
+            <div className="stat-label">Casual leave</div>
+            <div className="stat-value">{balances.CASUAL ?? '—'}</div>
+            <div className="stat-note">§115 · 10 days/year, lapses</div>
+          </div>
+          <div className="card">
+            <div className="stat-label">Sick leave</div>
+            <div className="stat-value">{balances.SICK ?? '—'}</div>
+            <div className="stat-note">§116 · 14 days/year</div>
+          </div>
+          <div className="card">
+            <div className="stat-label">
+              {role === 'EMPLOYEE' ? 'My requests' : 'Pending approvals'}
+            </div>
+            <div className="stat-value">{pending.length || (role === 'EMPLOYEE' ? '—' : 0)}</div>
+            <div className="stat-note">
+              {role === 'EMPLOYEE' ? 'See Leave' : <Link to="/leave">Review queue →</Link>}
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       {isHr && (
         <>
-          <h2>Attrition risk — top signals</h2>
+          <h2>Attrition risk</h2>
 
-          {/* spec §9: the prohibited-use notice is part of the UI contract, not a footnote. */}
-          <div className="guard">
-            <strong>Advisory only.</strong> These scores support retention conversations. Using a
-            score in a termination, promotion, appraisal or pay decision is a prohibited use. Every
-            view of this list is written to the audit log.
-          </div>
-
-          <div className="card">
-            <div className="row no-print" style={{ marginBottom: 14 }}>
-              <div style={{ flex: 2 }}>
-                <span className="notice">
-                  {atRisk?.length
-                    ? `Scored ${atRisk[0]!.scored_on} · ${Object.entries(bands)
-                        .map(([b, n]) => `${n} ${b.toLowerCase()}`)
-                        .join(', ')}`
-                    : 'No scores yet — run the nightly batch.'}
-                </span>
+          {gated ? (
+            <UpgradePrompt detail={gated} />
+          ) : (
+            <>
+              <div className="guard">
+                <strong>Advisory only.</strong> These scores support retention conversations.
+                Using a score in a termination, promotion, appraisal or pay decision is a
+                prohibited use. Every view of this list is written to the audit log.
               </div>
-              <div style={{ flex: 0, minWidth: 150 }}>
-                <button className="primary sm" onClick={rescore} disabled={scoring}>
-                  {scoring ? 'Scoring…' : 'Run scoring batch'}
-                </button>
-              </div>
-            </div>
 
-            <table>
-              <thead>
-                <tr>
-                  <th>Employee</th>
-                  <th>Department</th>
-                  <th className="num">Score</th>
-                  <th>Band</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                {(atRisk ?? []).map((r) => (
-                  <tr key={r.id}>
-                    <td>
-                      {r.full_name}
-                      <div className="stat-note">{r.designation}</div>
-                    </td>
-                    <td>{r.department_name ?? '—'}</td>
-                    <td className="num">{r.score}</td>
-                    <td>
-                      <span className={`badge ${r.band}`}>{r.band}</span>
-                    </td>
-                    <td className="num">
-                      <Link to={`/at-risk/${r.id}`}>Why? →</Link>
-                    </td>
-                  </tr>
-                ))}
-                {atRisk?.length === 0 && (
-                  <tr>
-                    <td colSpan={5} className="notice">
-                      No scores yet. Run the scoring batch.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+              {atRisk === null ? (
+                <TableSkeleton rows={5} cols={5} />
+              ) : atRisk.length === 0 ? (
+                <EmptyState
+                  icon="📊"
+                  title="No scores yet"
+                  body="The nightly batch has not run for this organisation. Run it now to see which employees are showing early signs of leaving."
+                  action={
+                    <button className="primary" onClick={rescore} disabled={scoring}>
+                      {scoring ? 'Scoring…' : 'Run scoring batch'}
+                    </button>
+                  }
+                />
+              ) : (
+                <div className="card">
+                  <div className="row no-print" style={{ marginBottom: 14 }}>
+                    <div style={{ flex: 2 }}>
+                      <span className="notice">Scored {atRisk[0]!.scored_on}</span>
+                    </div>
+                    <div style={{ flex: 0, minWidth: 150 }}>
+                      <button className="primary sm" onClick={rescore} disabled={scoring}>
+                        {scoring ? 'Scoring…' : 'Run scoring batch'}
+                      </button>
+                    </div>
+                  </div>
+
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Employee</th>
+                        <th>Department</th>
+                        <th className="num">Score</th>
+                        <th>Band</th>
+                        <th />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {atRisk.map((r) => (
+                        <tr key={r.id}>
+                          <td>
+                            {r.full_name}
+                            <div className="stat-note">{r.designation}</div>
+                          </td>
+                          <td>{r.department_name ?? '—'}</td>
+                          <td className="num">{r.score}</td>
+                          <td>
+                            <span className={`badge ${r.band}`}>{r.band}</span>
+                          </td>
+                          <td className="num">
+                            <Link to={`/at-risk/${r.id}`}>Why? →</Link>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </>
+          )}
         </>
       )}
     </>
