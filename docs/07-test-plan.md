@@ -65,7 +65,7 @@ Boundaries from [`04-payroll-spec.md`](04-payroll-spec.md) §10:
 - Lateness is department-normalised — a team with a shared commute problem is not uniformly
   flagged
 - precision@k, base rate and lift reported; **`accuracy` asserted absent** (P1-15)
-- **A no-signal model FAILS the Go/No-Go gate** — proving the gate is real
+- **A no-signal model FAILS the acceptance criterion** — proving the criterion is real
 
 ### `dates.test.ts` — 13 tests
 

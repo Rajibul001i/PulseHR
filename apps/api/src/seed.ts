@@ -80,12 +80,28 @@ function seedOrganisation(opts: {
   const orgId = uuid();
   const random = rng(opts.seed);
 
+  const seatLimit = opts.tier === 'STARTER' ? 50 : opts.tier === 'GROWTH' ? 300 : 5000;
   run(
-    'INSERT INTO organisation (id, name, tier, weekend_days, created_at) VALUES (?, ?, ?, ?, ?)',
+    `INSERT INTO organisation (id, name, tier, weekend_days, plan_status, seat_limit,
+                               billing_email, renews_on, created_at)
+     VALUES (?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?)`,
     orgId,
     opts.name,
     opts.tier,
     '5,6',
+    seatLimit,
+    `billing@${opts.emailDomain}`,
+    addDays(TODAY, 300),
+    nowIso(),
+  );
+  run(
+    `INSERT INTO subscription_event (id, organisation_id, event_type, from_tier, to_tier,
+                                     effective_on, note, created_at)
+     VALUES (?, ?, 'SUBSCRIBED', NULL, ?, ?, 'Initial subscription', ?)`,
+    uuid(),
+    orgId,
+    opts.tier,
+    addDays(TODAY, -365),
     nowIso(),
   );
 
@@ -93,7 +109,12 @@ function seedOrganisation(opts: {
   for (const dept of new Set(opts.profiles.map((p) => p.department))) {
     const id = uuid();
     departments.set(dept, id);
-    run('INSERT INTO department (id, organisation_id, name) VALUES (?, ?, ?)', id, orgId, dept);
+    // BUG-07: office start is per-department. Support starts early, Sales starts late.
+    const start = dept === 'Support' ? '08:30' : dept === 'Sales' ? '10:00' : '09:00';
+    run(
+      'INSERT INTO department (id, organisation_id, name, office_start_time) VALUES (?, ?, ?, ?)',
+      id, orgId, dept, start,
+    );
   }
 
   // HR admin account
@@ -342,7 +363,8 @@ const db = getDb();
 for (const table of [
   'attrition_contribution', 'attrition_score', 'payslip_line', 'payslip', 'leave_ledger',
   'leave_request', 'attendance', 'salary_structure', 'notice', 'audit_log', 'holiday',
-  'session', 'employee', 'app_user', 'department', 'organisation',
+  'session', 'employee', 'app_user', 'department',
+  'subscription_event', 'feature_gate_hit', 'organisation',
 ]) {
   db.exec(`DELETE FROM ${table}`);
 }

@@ -13,7 +13,7 @@
  * because it is the only correct thing to ship without labels, and because it is
  * AUDITABLE, which a fitted regression is not. The system collects the data that would
  * let it become a learned model, and the promotion criterion is written down NOW
- * (see `MODEL_PROMOTION_CRITERION`) so it cannot be fudged later.
+ * (see `MODEL_ACCEPTANCE`) so it cannot be fudged later.
  */
 
 import type { DhakaDate } from './dates.js';
@@ -112,13 +112,16 @@ if (WEIGHT_TOTAL !== 100) {
 }
 
 /**
- * The Go/No-Go gate for Increment 3, written before the spike is built so it cannot be
- * rationalised afterwards. docs/05-attrition-risk-spec.md §8.
+ * Acceptance criteria for the module (docs/05-attrition-risk-spec.md §7).
+ *
+ * These are acceptance criteria, not a stage gate. Increment 4 is "done" when the scorecard
+ * meets them, exactly as every other increment is done when its user stories pass. A miss
+ * is a bug to fix inside the increment, not a trigger to renegotiate scope.
  */
-export const MODEL_PROMOTION_CRITERION = {
-  /** Increment 3 gate: precision@10 must beat the base rate by this multiple. */
-  goNoGoPrecisionLiftMultiple: 3,
-  /** v2 (fitted regression) unlocks only at 10 events per predictor. */
+export const MODEL_ACCEPTANCE = {
+  /** precision@10 must beat the base rate by at least this multiple. */
+  minPrecisionLiftMultiple: 3,
+  /** v2 (fitted regression) is only permitted at 10 labelled events per predictor. */
   minSeparationEventsForRegression: FEATURES.length * 10,
 } as const;
 
@@ -309,7 +312,8 @@ export interface EvaluationReport {
   /** Trivial rule: flag everyone at 11-13 months' tenure. Must be beaten to have value. */
   baselinePrecisionAtK: number;
   lift: number;
-  passesGoNoGo: boolean;
+  /** Meets the module's acceptance criteria (MODEL_ACCEPTANCE). */
+  meetsAcceptance: boolean;
 }
 
 /**
@@ -318,7 +322,7 @@ export interface EvaluationReport {
  * Naively taking `ranked.slice(0, k)` breaks ties by array order, which silently inflates
  * precision@k: a model that assigns every employee an identical score would "rank" them
  * by whatever order they came out of the database and could score a perfect 1.0. That
- * would make the Go/No-Go gate meaningless — a degenerate model would pass it.
+ * would make the acceptance criterion meaningless — a degenerate model would pass it.
  *
  * So items strictly above the cut-off score count in full, and items TIED at the cut-off
  * share the remaining slots proportionally. For a no-signal model this returns exactly
@@ -386,8 +390,8 @@ export function evaluate(cases: LabelledCase[], k = 10): EvaluationReport {
     recallAtK: Math.round(recallAtK * 1000) / 1000,
     baselinePrecisionAtK: Math.round(baselinePrecisionAtK * 1000) / 1000,
     lift: Math.round(lift * 100) / 100,
-    passesGoNoGo:
-      lift >= MODEL_PROMOTION_CRITERION.goNoGoPrecisionLiftMultiple &&
+    meetsAcceptance:
+      lift >= MODEL_ACCEPTANCE.minPrecisionLiftMultiple &&
       precisionAtK > baselinePrecisionAtK,
   };
 }

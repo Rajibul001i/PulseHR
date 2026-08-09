@@ -3,7 +3,7 @@ import {
   bandOf,
   evaluate,
   FEATURES,
-  MODEL_PROMOTION_CRITERION,
+  MODEL_ACCEPTANCE,
   scoreEmployee,
   tenureMilestoneProximity,
   type AttritionFeatureInput,
@@ -224,10 +224,10 @@ describe('evaluation — P1-14 / P1-15', () => {
     expect(r).not.toHaveProperty('accuracy');
   });
 
-  it('the scorecard clears the written Go/No-Go gate on this set', () => {
+  it('the scorecard meets its acceptance criteria on this set', () => {
     const r = evaluate(buildCases(), 10);
-    expect(r.lift).toBeGreaterThanOrEqual(MODEL_PROMOTION_CRITERION.goNoGoPrecisionLiftMultiple);
-    expect(r.passesGoNoGo).toBe(true);
+    expect(r.lift).toBeGreaterThanOrEqual(MODEL_ACCEPTANCE.minPrecisionLiftMultiple);
+    expect(r.meetsAcceptance).toBe(true);
   });
 
   it('beats the trivial "flag everyone at 11-13 months" baseline', () => {
@@ -235,7 +235,7 @@ describe('evaluation — P1-14 / P1-15', () => {
     expect(r.precisionAtK).toBeGreaterThan(r.baselinePrecisionAtK);
   });
 
-  it('a model with no signal FAILS the gate — the gate is real', () => {
+  it('a model with no signal FAILS acceptance — the criterion is real', () => {
     // Every case identical => the ranking is arbitrary and precision collapses to base rate.
     const flat: LabelledCase[] = Array.from({ length: 40 }, (_, i) => ({
       employeeId: `e-${i}`,
@@ -243,11 +243,11 @@ describe('evaluation — P1-14 / P1-15', () => {
       features: { ...neutral, employeeId: `e-${i}` },
     }));
     const r = evaluate(flat, 10);
-    expect(r.lift).toBeLessThan(MODEL_PROMOTION_CRITERION.goNoGoPrecisionLiftMultiple);
-    expect(r.passesGoNoGo).toBe(false);
+    expect(r.lift).toBeLessThan(MODEL_ACCEPTANCE.minPrecisionLiftMultiple);
+    expect(r.meetsAcceptance).toBe(false);
   });
 
   it('requires 80 separation events before a fitted regression may replace the scorecard', () => {
-    expect(MODEL_PROMOTION_CRITERION.minSeparationEventsForRegression).toBe(80);
+    expect(MODEL_ACCEPTANCE.minSeparationEventsForRegression).toBe(80);
   });
 });

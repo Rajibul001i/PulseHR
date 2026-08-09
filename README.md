@@ -67,7 +67,7 @@ Requires **Node 24+** (for the built-in `node:sqlite`). No database install, no 
 | [02 · Architecture](docs/02-architecture.md) | ADR-002…009, NFRs, load model, security posture |
 | [03 · Data Model](docs/03-data-model.md) | Full ERD, PostgreSQL DDL, indexing, retention |
 | [04 · Payroll Spec](docs/04-payroll-spec.md) | Labour Act rules, formulas, worked examples, boundaries |
-| [05 · Attrition Risk Spec](docs/05-attrition-risk-spec.md) | Cold-start scorecard, metrics, Go/No-Go, responsible use |
+| [05 · Attrition Risk Spec](docs/05-attrition-risk-spec.md) | Cold-start scorecard, metrics, acceptance criteria, responsible use |
 | [06 · API Contract](docs/06-api-contract.md) | Endpoints and the 16-screen inventory |
 | [07 · Test Plan](docs/07-test-plan.md) | What each test level actually runs, with traceability |
 | [08 · Business Model](docs/08-business-model-corrections.md) | Corrected unit economics and pricing |

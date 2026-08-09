@@ -12,7 +12,7 @@ retrospective."*
 
 | # | Risk | P | I | Exp | Mitigation | Owner |
 |---|---|---|---|---|---|---|
-| **R1** | **The AI module has no labelled training data**, so no model can be fitted during the project | 5 | 4 | **20** | Ship the expert-weighted scorecard (P0-4). Pre-written Go/No-Go with a named fallback. **Already mitigated by design.** | AI Engineer |
+| **R1** | **The AI module has no labelled training data**, so no model can be fitted during the project | 5 | 4 | **20** | Ship the expert-weighted scorecard (P0-4). The AI module is the final increment, so three increments of working software ship regardless. **Already mitigated by design.** | AI Engineer |
 | **R2** | Field research (2 org visits, 50 surveys, 2 interviews) slips or under-delivers, leaving weights unfounded | 4 | 4 | **16** | Start outreach in **week 1**, not week 3. Fall back to published attrition literature for weights, and say so. Target 2 interviews, accept 1. | Team Lead |
 | **R3** | Statutory figures (leave rates, OT base, holidays) are wrong in the delivered engine | 3 | 5 | **15** | All statutory values are **configuration, not code**. One nominated member verifies every figure against the consolidated Act before submission. | SQA Lead |
 | **R4** | Scope: six modules in 8 weeks with 5 part-time student developers | 4 | 4 | **16** | Increment order puts Payroll and Leave first. OKR and ATS are the declared **cut line** if week 6 is behind. | Team Lead |

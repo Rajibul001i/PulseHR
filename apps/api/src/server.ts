@@ -13,6 +13,10 @@ import { z } from 'zod';
 import {
   businessDate,
   checkApproval,
+  checkSeats,
+  entitledFeatures,
+  PLAN_FEATURES,
+  TIER_PRICE_PAISA,
   dhakaMinutesOfDay,
   requestedDays,
   structureInForce,
@@ -33,6 +37,7 @@ import {
 } from './auth.js';
 import { Repo } from './repo.js';
 import { enqueue, jobStatus } from './jobs/queue.js';
+import { requireFeature, subscriptionOf } from './entitlement.js';
 
 openDb();
 
@@ -134,7 +139,10 @@ app.use('/api', (req, res, next) => {
 app.get(
   '/api/employees',
   handler((req, res) => {
-    res.json(repoOf(req).listEmployees());
+    // BUG-06 / US-11 (F2.4): ?q= was accepted and silently ignored, returning the whole
+    // directory. Search now filters on name, code, designation and department.
+    const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+    res.json(repoOf(req).listEmployees(q || undefined));
   }),
 );
 
@@ -183,10 +191,25 @@ app.post(
     // ADR-005: the business date is derived in Asia/Dhaka, never from raw UTC.
     const workDate = businessDate(now);
     const minutes = dhakaMinutesOfDay(now);
-    const SHIFT_START = 9 * 60;
+    const repo = repoOf(req);
+
+    // BUG-08: a second check-in used to silently overwrite the original timestamp,
+    // destroying the evidence the lateness signal and payroll both depend on.
+    const today = repo.attendanceBetween(p.employeeId, workDate, workDate)[0];
+    if (today?.check_in) {
+      res.status(409).json({
+        error: 'Already checked in today',
+        workDate,
+        checkIn: String(today.check_in),
+      });
+      return;
+    }
+
+    // BUG-07: office start time is per-department (class diagram: Department.officeStartTime),
+    // not a global 09:00.
+    const SHIFT_START = repo.officeStartMinutesFor(p.employeeId);
     const lateMinutes = Math.max(0, minutes - SHIFT_START);
 
-    const repo = repoOf(req);
     repo.upsertAttendance(p.employeeId, workDate, {
       check_in: now.toISOString(),
       late_minutes: lateMinutes,
@@ -223,13 +246,34 @@ app.post(
   }),
 );
 
+/**
+ * BUG-02 / BUG-01 (SQA-2026-08-10).
+ *
+ * This route previously had no role guard at all: any authenticated EMPLOYEE could read
+ * the entire company's attendance — 620 rows of colleagues' records in the seeded demo —
+ * despite the API contract stating MANAGER+HR. And a MANAGER saw all 20 employees rather
+ * than their own department, contradicting US-04's acceptance criterion.
+ */
 app.get(
   '/api/attendance/grid',
+  requireRole('MANAGER', 'HR_ADMIN'),
   handler((req, res) => {
     const { from, to } = z
       .object({ from: z.string(), to: z.string() })
       .parse({ from: req.query.from, to: req.query.to });
-    res.json(repoOf(req).attendanceGrid(from, to));
+
+    const p = req.principal!;
+    const repo = repoOf(req);
+
+    // US-04: "A Manager opening the attendance report sees only their own department."
+    if (p.role === 'MANAGER') {
+      const me = p.employeeId ? repo.getEmployee(p.employeeId) : undefined;
+      const departmentId = me?.department_id ? String(me.department_id) : null;
+      res.json(repo.attendanceGrid(from, to, { departmentId }));
+      return;
+    }
+
+    res.json(repo.attendanceGrid(from, to));
   }),
 );
 
@@ -295,6 +339,17 @@ app.post(
     const p = req.principal!;
     if (!p.employeeId) {
       res.status(400).json({ error: 'No employee record linked to this user' });
+      return;
+    }
+
+    // BUG-10 (F4.1): a request dated 2020 was accepted. Leave is applied for, not
+    // back-filled — retroactive entries are an HR adjustment, not a self-service action.
+    const today = businessDate(new Date());
+    if (body.startDate < today) {
+      res.status(400).json({
+        error: `Leave cannot start in the past (${body.startDate} is before ${today})`,
+        code: 'START_DATE_IN_PAST',
+      });
       return;
     }
 
@@ -433,11 +488,19 @@ app.post(
   }),
 );
 
+/**
+ * BUG-11 (SQA-2026-08-10) — cross-tenant leak.
+ *
+ * Job ids were global. A holder of any job id could read that job regardless of which
+ * organisation enqueued it, exposing another tenant's payroll run summary — including
+ * total net pay. Now scoped to the caller's organisation, and a foreign id returns 404
+ * rather than 403 so it does not confirm the job exists.
+ */
 app.get(
   '/api/jobs/:id',
   handler((req, res) => {
     const status = jobStatus(req.params.id!);
-    if (!status) {
+    if (!status || status.payload.organisationId !== req.principal!.organisationId) {
       res.status(404).json({ error: 'Unknown job' });
       return;
     }
@@ -464,6 +527,40 @@ app.get(
   }),
 );
 
+/* ============================= subscription =============================== */
+
+/**
+ * BUG-16 — nothing in the API knew which plan a tenant was on. The UI reads this once at
+ * sign-in and renders navigation, gates and upgrade prompts from the same entitlement
+ * matrix the API enforces, so the two can never disagree.
+ */
+app.get(
+  '/api/subscription',
+  handler((req, res) => {
+    const p = req.principal!;
+    const subscription = subscriptionOf(p.organisationId);
+    const today = businessDate(new Date());
+    const org = repoOf(req).subscription();
+    res.json({
+      organisation: org?.name ?? null,
+      tier: subscription.tier,
+      status: subscription.status,
+      trialEndsOn: subscription.trialEndsOn,
+      seats: checkSeats(subscription),
+      entitlements: entitledFeatures(subscription, today),
+      catalogue: PLAN_FEATURES,
+      pricePaisa: TIER_PRICE_PAISA[subscription.tier],
+    });
+  }),
+);
+
+app.get(
+  '/api/departments',
+  handler((req, res) => {
+    res.json(repoOf(req).departments());
+  }),
+);
+
 /* =============================== attrition ================================ */
 
 /**
@@ -477,6 +574,7 @@ app.get(
 app.get(
   '/api/attrition/at-risk',
   requireRole('HR_ADMIN'),
+  requireFeature('attrition_full'),
   handler((req, res) => {
     const limit = Number(req.query.limit ?? 20);
     res.json(repoOf(req).latestScores(limit));
@@ -486,6 +584,7 @@ app.get(
 app.get(
   '/api/attrition/scores/:id',
   requireRole('HR_ADMIN'),
+  requireFeature('attrition_full'),
   handler((req, res) => {
     const found = repoOf(req).scoreWithContributions(req.params.id!);
     if (!found) {
@@ -505,6 +604,7 @@ app.get(
 app.post(
   '/api/attrition/runs',
   requireRole('HR_ADMIN'),
+  requireFeature('attrition_full'),
   handler((req, res) => {
     const p = req.principal!;
     const jobId = enqueue('ATTRITION_SCORING', {

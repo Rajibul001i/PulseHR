@@ -57,10 +57,12 @@ Within the one file:
 Slide 29 says the model was chosen *over* incremental. Slide 10 says incremental *was*
 the choice. Both cannot stand.
 
-**Fix:** slide 10's Prototyping card must say *insufficient as a **governing** model —
-retained as a **technique** inside Increment 3*, and slide 29 must say *"the reason
-Increment 3 carries an explicit prototype-and-go/no-go gate"*. Exact wording in
-[`01-process-model-decision.md`](01-process-model-decision.md).
+**Fix:** slide 10's Prototyping card is a plain rejection (requirements *are* specified —
+9 features, 43 functions, 49 user stories with acceptance criteria), and slide 29 drops the
+"chosen over incremental" clause entirely. Exact wording in
+[`01-process-model-decision.md`](01-process-model-decision.md), which selects a plain
+Incremental lifecycle with **no stage gates** — matching the team's own Features & Functions
+document and Requirements Model.
 
 ---
 
@@ -109,7 +111,8 @@ feature the entire product is sold on.
    With 8 features that is **≥ 80 voluntary separations** — realistically 2–3 years of
    data from a 300-person customer. Say so.
 
-That promotion criterion *is* the Go/No-Go gate the process model exists to provide.
+That promotion criterion is the module's acceptance criterion — see ADR-001, which
+selects a plain Incremental lifecycle with no stage gates.
 Full spec: [`05-attrition-risk-spec.md`](05-attrition-risk-spec.md).
 
 ---
@@ -441,7 +444,7 @@ know the model works.
 within 90 days. It is the only metric that matters when HR can realistically hold ten
 retention conversations a month. Report it against the base rate, and against a trivial
 baseline (*"flag everyone at 11–13 months' tenure"*). If you cannot beat that baseline, the
-model has no value — and saying so is exactly the Go/No-Go gate.
+model has no value — and saying so is exactly what the acceptance criterion is for.
 
 ### P1-15 · Class imbalance is not addressed
 
@@ -595,7 +598,8 @@ consistent in all six places.
 Proposal §5.4 places the AI prototype and Go/No-Go *"early in Sprint 3"*. Proposal §6.2's
 Sprint 3 description does not mention the AI prototype at all. Deck slide 16 has it right.
 
-**Fix:** add the AI prototype and the Go/No-Go review to §6.2 Sprint 3 deliverables.
+**Fix:** ADR-001 removes the gate entirely. §6.2 is rewritten around four increments in
+[`10-proposal-patches.md`](10-proposal-patches.md), which resolves the disagreement.
 
 ### P2-5 · The Gantt and the increment table disagree on when AI starts
 

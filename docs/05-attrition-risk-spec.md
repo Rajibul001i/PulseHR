@@ -149,19 +149,21 @@ that the team does not understand the problem.
 | **precision@10** *(primary)* | Of the 10 employees flagged highest, how many actually resign within 90 days. HR can hold ~10 conversations a month — this is the only metric that maps to the real operating constraint. |
 | **recall@threshold** | Of everyone who resigned, how many were flagged. Guards against a model that is precise but flags almost nobody. |
 | **Base rate** | Always reported alongside. precision@10 of 30% means nothing until you know the base rate is 3%. |
-| **Lift over baseline** | Compared against the trivial rule *"flag everyone at 11–13 months' tenure."* If the model cannot beat that, it has no value — and saying so is the point of the gate. |
+| **Lift over baseline** | Compared against the trivial rule *"flag everyone at 11–13 months' tenure."* If the model cannot beat that, it has no value. |
 
-## 8. Go/No-Go criterion — Increment 3
+## 8. Acceptance criteria — Increment 4
 
-Written **now**, before the spike is built, so it cannot be rationalised afterwards.
+These are **acceptance criteria**, not a stage gate. ADR-001 selects a plain Incremental
+lifecycle with no Go/No-Go checkpoints: Feature 9 is done when it meets its criteria, just as
+every other feature is done when its user stories pass. A miss is a bug to fix inside
+Increment 4, not a trigger to renegotiate scope.
 
-> **GO** — Increment 4 delivers the full scoring engine if **both** hold:
-> 1. **precision@10 ≥ 3× base rate** on the validation scenario set, **and**
-> 2. every score decomposes into per-feature contributions summing to the total.
+> **F9 is accepted when both hold:**
+> 1. **precision@10 ≥ 3× base rate** on the held-out validation set, and
+> 2. every score decomposes into per-feature contributions that sum to the total.
 >
-> **NO-GO** — Increment 4 delivers a **rule-based watchlist** instead: tenure milestones
-> (F1) and unplanned-absence pattern (F2) only, presented as a list with no composite
-> score. Recovered capacity hardens Payroll and the ATS.
+> Both are asserted automatically — `packages/core/test/attrition.test.ts`, and
+> `evaluate()` returns `meetsAcceptance`.
 
 Validation set: 40 hand-constructed employee scenarios derived from the HR-manager
 interviews — 12 labelled *resigned within 90 days*, 28 labelled *stayed*. Constructed

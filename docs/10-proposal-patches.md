@@ -38,18 +38,19 @@ Replace the whole of §6.2 with:
 > multi-level approval workflow backed by an append-only leave ledger. The increment
 > delivers a usable HR system.
 >
-> **Increment 3 (Weeks 5–6) — Advanced Modules & AI Prototype.**
+> **Increment 3 (Weeks 5–6) — Advanced Modules.**
 > The team will engineer the Automated Payroll Engine, handling leave-without-pay proration
 > and overtime at twice the ordinary rate of basic wage per §108, issuing immutable
 > line-itemised payslips. It will implement OKR-based Performance Management and the
-> Kanban Applicant Tracking System. In parallel, the AI Engineer will build a **throwaway
-> scoring prototype** for the Attrition Risk Module and evaluate it against a held-out
-> scenario set, concluding with the **formal Go/No-Go decision** described in §5.4.
+> Kanban Applicant Tracking System (F5–F8). In parallel, the AI Engineer will complete the
+> behavioural signal feeds the Attrition Risk Module depends on — attendance, leave and
+> salary history exposed for scoring (F9.1).
 >
-> **Increment 4 (Weeks 7–8) — AI Evolution, SQA & Deployment.**
-> Subject to the Go/No-Go outcome, the team will harden the attrition scoring engine and
-> integrate its explainable output into the HR dashboard; if the gate is not cleared, it
-> will deliver the reduced rule-based watchlist instead. The increment will complete the
+> **Increment 4 (Weeks 7–8) — AI Attrition Risk, SQA & Deployment.**
+> The team will build and calibrate the attrition scoring engine and integrate its
+> explainable output into the HR dashboard (F9.1–F9.5). Because this module carries the most
+> technical uncertainty, the Incremental Model deliberately places it last: three increments
+> of working, tested software are already delivered before it begins. The increment will complete the
 > full SQA cycle — unit, integration, system, regression, performance and security testing —
 > against a database seeded to realistic volume, followed by performance tuning and
 > production deployment.

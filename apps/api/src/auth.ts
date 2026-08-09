@@ -158,7 +158,12 @@ export function requireRole(...roles: Role[]) {
 /* --------------------------- login rate limiting -------------------------- */
 
 const attempts = new Map<string, { count: number; resetAt: number }>();
-const MAX_ATTEMPTS = 5;
+/**
+ * BUG-03 / US-02: "Six consecutive failed attempts lock the account for a cool-down
+ * period." Six failures are therefore permitted and the SEVENTH is refused. The previous
+ * value of 5 locked one attempt early, failing the story's acceptance criterion.
+ */
+const MAX_ATTEMPTS = 6;
 const WINDOW_MS = 15 * 60_000;
 
 export function checkLoginRateLimit(email: string): boolean {

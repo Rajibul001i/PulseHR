@@ -46,14 +46,34 @@ export class Repo {
 
   /* ----------------------------- employees ------------------------------ */
 
-  listEmployees(): Row[] {
+  /** BUG-06 / F2.4 · US-11 — `q` filters name, code, designation and department. */
+  listEmployees(q?: string): Row[] {
+    if (!q) {
+      return all(
+        `SELECT e.*, d.name AS department_name
+           FROM employee e
+           LEFT JOIN department d ON d.id = e.department_id
+          WHERE e.organisation_id = ?
+          ORDER BY e.full_name`,
+        this.orgId,
+      );
+    }
+    const like = `%${q.toLowerCase()}%`;
     return all(
       `SELECT e.*, d.name AS department_name
          FROM employee e
          LEFT JOIN department d ON d.id = e.department_id
         WHERE e.organisation_id = ?
+          AND ( LOWER(e.full_name)     LIKE ?
+             OR LOWER(e.employee_code) LIKE ?
+             OR LOWER(e.designation)   LIKE ?
+             OR LOWER(COALESCE(d.name, '')) LIKE ? )
         ORDER BY e.full_name`,
       this.orgId,
+      like,
+      like,
+      like,
+      like,
     );
   }
 
@@ -64,6 +84,43 @@ export class Repo {
          LEFT JOIN department d ON d.id = e.department_id
         WHERE e.id = ? AND e.organisation_id = ?`,
       id,
+      this.orgId,
+    );
+  }
+
+  /** BUG-07 — office start is per-department (Department.officeStartTime), not a global 09:00. */
+  officeStartMinutesFor(employeeId: string): number {
+    const row = one(
+      `SELECT d.office_start_time AS t
+         FROM employee e LEFT JOIN department d ON d.id = e.department_id
+        WHERE e.id = ? AND e.organisation_id = ?`,
+      employeeId,
+      this.orgId,
+    );
+    const raw = row?.t ? String(row.t) : '09:00';
+    const parts = raw.split(':').map(Number);
+    return (parts[0] ?? 9) * 60 + (parts[1] ?? 0);
+  }
+
+  departments(): Row[] {
+    return all(
+      `SELECT d.id, d.name,
+              d.office_start_time AS officeStartTime,
+              (SELECT COUNT(*) FROM employee e WHERE e.department_id = d.id) AS headcount
+         FROM department d
+        WHERE d.organisation_id = ?
+        ORDER BY d.name`,
+      this.orgId,
+    );
+  }
+
+  /** Tenant's subscription plan — drives feature gating (docs/11-subscription-model.md). */
+  subscription(): Row | undefined {
+    return one(
+      `SELECT id, name, tier, plan_status, trial_ends_on, seat_limit,
+              (SELECT COUNT(*) FROM employee e
+                WHERE e.organisation_id = o.id AND e.employment_status = 'ACTIVE') AS seats_used
+         FROM organisation o WHERE o.id = ?`,
       this.orgId,
     );
   }
@@ -115,8 +172,27 @@ export class Repo {
     );
   }
 
-  /** The monthly grid — the hot path of P1-23. */
-  attendanceGrid(from: string, to: string): Row[] {
+  /**
+   * The monthly grid — the hot path of P1-23.
+   *
+   * BUG-01 / US-04: a MANAGER must see only their own department. Passing
+   * `{ departmentId }` narrows the grid; HR passes nothing and sees the organisation.
+   */
+  attendanceGrid(from: string, to: string, scope?: { departmentId: string | null }): Row[] {
+    if (scope !== undefined) {
+      return all(
+        `SELECT a.employee_id, e.full_name, a.work_date, a.status, a.late_minutes, a.ot_hours
+           FROM attendance a
+           JOIN employee e ON e.id = a.employee_id
+          WHERE a.organisation_id = ? AND a.work_date BETWEEN ? AND ?
+            AND e.department_id IS ?
+          ORDER BY e.full_name, a.work_date`,
+        this.orgId,
+        from,
+        to,
+        scope.departmentId,
+      );
+    }
     return all(
       `SELECT a.employee_id, e.full_name, a.work_date, a.status, a.late_minutes, a.ot_hours
          FROM attendance a
