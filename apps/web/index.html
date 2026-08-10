@@ -4,6 +4,23 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>PulseHR</title>
+    <!--
+      GitHub Pages has no server-side rewrite for client-side routes, so a hard refresh or
+      shared link on e.g. /app/leave 404s. 404.html (deployed alongside this app) redirects
+      those to here with the real path packed into the query string; this reverses it before
+      React Router mounts. A no-op everywhere else (real production hosting, local dev),
+      since the query string never starts with '/' there. https://github.com/rafgraph/spa-github-pages
+    -->
+    <script>
+      (function (l) {
+        if (l.search[1] === '/') {
+          var decoded = l.search.slice(1).split('&').map(function (s) {
+            return s.replace(/~and~/g, '&');
+          }).join('?');
+          window.history.replaceState(null, null, l.pathname.slice(0, -1) + decoded + l.hash);
+        }
+      })(window.location);
+    </script>
   </head>
   <body>
     <div id="root"></div>
