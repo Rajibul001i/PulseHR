@@ -118,7 +118,11 @@ a { color: var(--accent); text-decoration: none; }
   display: none;
   position: fixed; inset: 0; z-index: 40;
   background: rgba(0, 0, 0, 0.5);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 180ms ease;
 }
+.scrim.open { opacity: 1; pointer-events: auto; }
 
 /* ------------------------------ plan chip ------------------------------- */
 
@@ -191,9 +195,10 @@ tr:last-child td { border-bottom: none; }
 button {
   font: inherit; font-size: 14px; padding: 8px 15px; border-radius: 8px;
   border: 1px solid var(--border); background: var(--surface-2); color: var(--text);
-  cursor: pointer; transition: border-color .12s ease, background .12s ease;
+  cursor: pointer; transition: border-color .12s ease, background .12s ease, transform .1s ease-out;
 }
 button:hover:not(:disabled) { border-color: var(--accent); }
+button:active:not(:disabled) { transform: scale(0.97); }
 button:disabled { opacity: .45; cursor: not-allowed; }
 button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 button.danger { background: transparent; border-color: var(--high); color: var(--high); }
@@ -216,7 +221,10 @@ label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 5px
 
 .bar { height: 7px; background: var(--surface-2); border-radius: 4px; overflow: hidden; }
 .bar.sm { height: 4px; }
-.bar > i { display: block; height: 100%; background: var(--accent); transition: width .3s ease; }
+.bar > i {
+  display: block; height: 100%; background: var(--accent); transition: width .3s ease;
+  @starting-style { width: 0%; }
+}
 
 /* ------------------------------- banners -------------------------------- */
 
@@ -243,6 +251,14 @@ label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 5px
 .skeleton.sm { height: 9px; }
 .skeleton.lg { height: 22px; }
 @keyframes shimmer { to { background-position: -200% 0; } }
+
+/* Bridges the hard cut when a skeleton resolves into real content. */
+.content-in { animation: content-in 140ms ease-out; }
+@keyframes content-in { from { opacity: 0; transform: translateY(2px); } }
+
+/* Bridges the payslip list ↔ payslip detail swap. */
+.view-fade { animation: view-fade 180ms ease-out; }
+@keyframes view-fade { from { opacity: 0; } }
 
 /* Respect users who ask for less motion — NFR-11. */
 @media (prefers-reduced-motion: reduce) {
@@ -297,6 +313,7 @@ label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 5px
 .toast.success { border-left-color: var(--low); }
 .toast.error   { border-left-color: var(--high); }
 .toast.info    { border-left-color: var(--accent); }
+.toast.exiting { animation: slide-out 160ms ease forwards; }
 .toast-icon {
   flex-shrink: 0; width: 17px; height: 17px; border-radius: 50%;
   display: grid; place-items: center; font-size: 11px; font-weight: 700; color: #fff;
@@ -310,6 +327,7 @@ label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 5px
   padding: 0 2px; font-size: 16px; line-height: 1; cursor: pointer;
 }
 @keyframes slide-in { from { opacity: 0; transform: translateY(6px); } }
+@keyframes slide-out { to { opacity: 0; transform: translateY(6px); } }
 
 /* ---------------------------- attendance grid --------------------------- */
 

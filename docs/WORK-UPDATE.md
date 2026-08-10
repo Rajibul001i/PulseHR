@@ -8,6 +8,44 @@ as a changelog.
 
 ## Session 3 — 11 August 2026
 
+### 4. Implemented the animation-opportunities findings in `apps/web`
+
+Ran the `find-animation-opportunities` skill against the web app, then implemented the six
+surviving suggestions (all CSS-only or small, mechanical JSX changes — no new dependency):
+
+- **Toast exit** (`Toast.tsx`, `styles.css`) — dismissal now plays a 160ms `slide-out`
+  mirroring the existing entrance, instead of vanishing instantly.
+- **Button press feedback** (`styles.css`) — `button:active:not(:disabled) { transform:
+  scale(0.97) }`, appended to the existing hover-transition list.
+- **Skeleton → content fade** (`Dashboard.tsx`, `Leave.tsx`, `Plan.tsx`, `App.tsx`
+  Noticeboard) — a `.content-in` utility (140ms, opacity + 2px) applied wherever a
+  `StatSkeleton`/`TableSkeleton` resolves into real content.
+- **Mobile nav scrim** (`App.tsx`, `styles.css`) — was conditionally rendered (instant
+  pop); now stays mounted and toggles an `open` class so it fades in/out over 180ms,
+  matching the sidebar's own transition.
+- **Payslip list ↔ detail** (`Payslips.tsx`) — both views wrapped in a `.view-fade`
+  utility (180ms) instead of swapping with a hard cut.
+- **Progress bar fill-on-mount** (`styles.css`) — `.bar > i` already had `transition:
+  width .3s ease` but never played, because React mounted the bar pre-filled with no
+  "before" state. Added `@starting-style { width: 0% }` so it now animates in on the
+  seat-usage bar and the attrition contribution bars.
+
+**Verified:** `npm run typecheck` and `npm run build` clean. Drove the running app with
+Playwright (`playwright-core` against the system Chrome install, since neither
+`chromium-cli` nor a Playwright browser download were available) through login → Dashboard
+→ Leave → Payslips → Plan → mobile drawer → sign-out, screenshotting each step and checking
+console/network errors.
+
+**Found in the process, not caused by it:** `GET /api/leave/balances` and
+`GET /api/payroll/payslips` return `400 { "error": "employeeId required" }` for the
+`hr@meridian.test` demo account, because HR_ADMIN has no linked employee record. Confirmed
+present in the code before this session's changes (`apps/api/src/server.ts:316,444`) via
+`git stash`. `Leave.tsx` already catches this silently ("an HR admin has no employee record
+of their own"); `Payslips.tsx` does not, so an HR Admin visiting **Payslips** sees a raw
+`employeeId required` line above an empty table. Not fixed — flagging for the team to
+decide whether Payslips should degrade the same way Leave does, or whether HR_ADMIN should
+carry a linked employee record in the seed data.
+
 ### Summary
 
 | | |

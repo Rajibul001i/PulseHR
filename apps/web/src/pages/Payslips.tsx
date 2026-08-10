@@ -72,7 +72,7 @@ export function Payslips({ role }: { role: string }) {
   if (open) {
     const p = open.payslip;
     return (
-      <>
+      <div className="view-fade">
         <p className="page-sub no-print">
           <button className="sm" onClick={() => setOpen(null)}>
             ← Back
@@ -147,12 +147,12 @@ export function Payslips({ role }: { role: string }) {
             adjustment payslip.
           </p>
         </div>
-      </>
+      </div>
     );
   }
 
   return (
-    <>
+    <div className="view-fade">
       <h1>Payslips</h1>
       <p className="page-sub">Immutable and line-itemised — every figure is reproducible.</p>
       {error && <p className="error">{error}</p>}
@@ -221,6 +221,6 @@ export function Payslips({ role }: { role: string }) {
           </tbody>
         </table>
       </div>
-    </>
+    </div>
   );
 }

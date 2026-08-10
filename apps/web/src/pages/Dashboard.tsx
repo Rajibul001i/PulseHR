@@ -104,7 +104,7 @@ export function Dashboard({
       {loading ? (
         <StatSkeleton />
       ) : (
-        <div className="grid grid-4">
+        <div className="grid grid-4 content-in">
           <div className="card">
             <div className="stat-label">Earned leave</div>
             <div className="stat-value">{balances.EARNED ?? '—'}</div>
@@ -160,7 +160,7 @@ export function Dashboard({
                   }
                 />
               ) : (
-                <div className="card">
+                <div className="card content-in">
                   <div className="row no-print" style={{ marginBottom: 14 }}>
                     <div style={{ flex: 2 }}>
                       <span className="notice">Scored {atRisk[0]!.scored_on}</span>

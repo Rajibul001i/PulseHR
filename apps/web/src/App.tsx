@@ -35,7 +35,7 @@ function Noticeboard() {
       <p className="page-sub">Central, auditable internal communication.</p>
       {notices === null && <TableSkeleton rows={3} cols={1} />}
       {notices?.map((n) => (
-        <div className="card" key={n.id}>
+        <div className="card content-in" key={n.id}>
           <strong>{n.title}</strong>
           <div className="stat-note">{new Date(n.published_at).toLocaleString()}</div>
           <p style={{ marginBottom: 0 }}>{n.body}</p>
@@ -138,7 +138,10 @@ function Shell() {
         ☰
       </button>
 
-      {navOpen && <div className="scrim no-print" onClick={() => setNavOpen(false)} />}
+      <div
+        className={`scrim no-print ${navOpen ? 'open' : ''}`}
+        onClick={() => setNavOpen(false)}
+      />
 
       <aside className={`sidebar no-print ${navOpen ? 'open' : ''}`}>
         <div className="brand">

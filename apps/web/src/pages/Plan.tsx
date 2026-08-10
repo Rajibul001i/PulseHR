@@ -68,7 +68,7 @@ export function Plan() {
         </div>
       )}
 
-      <div className="grid grid-2">
+      <div className="grid grid-2 content-in">
         <div className="card">
           <div className="stat-label">Current plan</div>
           <div className="stat-value">{TIER_LABEL[sub.tier]}</div>

@@ -15,7 +15,11 @@ interface Toast {
   id: number;
   kind: ToastKind;
   message: string;
+  exiting?: boolean;
 }
+
+/** Matches the `slide-out` keyframe duration in styles.css. */
+const EXIT_MS = 160;
 
 interface ToastApi {
   success: (message: string) => void;
@@ -36,14 +40,20 @@ let nextId = 1;
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
 
+  // Two-step removal so `.exiting` gets a frame to animate before the toast leaves state.
+  const dismiss = useCallback((id: number) => {
+    setToasts((t) => t.map((x) => (x.id === id ? { ...x, exiting: true } : x)));
+    window.setTimeout(() => {
+      setToasts((t) => t.filter((x) => x.id !== id));
+    }, EXIT_MS);
+  }, []);
+
   const push = useCallback((kind: ToastKind, message: string) => {
     const id = nextId++;
     setToasts((t) => [...t, { id, kind, message }]);
     // Errors linger — the user may need to read a validation message twice.
-    window.setTimeout(() => {
-      setToasts((t) => t.filter((x) => x.id !== id));
-    }, kind === 'error' ? 7000 : 3500);
-  }, []);
+    window.setTimeout(() => dismiss(id), kind === 'error' ? 7000 : 3500);
+  }, [dismiss]);
 
   const api = useMemo<ToastApi>(
     () => ({
@@ -59,16 +69,16 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       {children}
       <div className="toast-stack" aria-live="polite" aria-atomic="false">
         {toasts.map((t) => (
-          <div key={t.id} className={`toast ${t.kind}`} role={t.kind === 'error' ? 'alert' : undefined}>
+          <div
+            key={t.id}
+            className={`toast ${t.kind}${t.exiting ? ' exiting' : ''}`}
+            role={t.kind === 'error' ? 'alert' : undefined}
+          >
             <span className="toast-icon" aria-hidden="true">
               {t.kind === 'success' ? '✓' : t.kind === 'error' ? '!' : 'i'}
             </span>
             <span>{t.message}</span>
-            <button
-              className="toast-close"
-              aria-label="Dismiss notification"
-              onClick={() => setToasts((x) => x.filter((y) => y.id !== t.id))}
-            >
+            <button className="toast-close" aria-label="Dismiss notification" onClick={() => dismiss(t.id)}>
               ×
             </button>
           </div>
