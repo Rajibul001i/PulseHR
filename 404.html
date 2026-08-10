@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>Redirecting…</title>
+    <!--
+      Standard GitHub Pages SPA redirect (https://github.com/rafgraph/spa-github-pages).
+      Only the /PulseHR/app/ deployment (the live PulseHR demo, react-router client routes)
+      needs this -- pathSegmentsToKeep=2 preserves "/PulseHR/app" and packs the rest of the
+      path into a query string that index.html's inline script decodes back before mount.
+      The prototype picker at the repo root uses no client-side routes, so it's unaffected.
+    -->
+    <script>
+      var pathSegmentsToKeep = 2;
+      var l = window.location;
+      l.replace(
+        l.protocol + '//' + l.hostname + (l.port ? ':' + l.port : '') +
+        l.pathname.split('/').slice(0, 1 + pathSegmentsToKeep).join('/') + '/?/' +
+        l.pathname.slice(1).split('/').slice(pathSegmentsToKeep).join('/').replace(/&/g, '~and~') +
+        (l.search ? '&' + l.search.slice(1).replace(/&/g, '~and~') : '') +
+        l.hash
+      );
+    </script>
+  </head>
+  <body></body>
+</html>
