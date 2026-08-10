@@ -104,23 +104,23 @@ export function Dashboard({
       {loading ? (
         <StatSkeleton />
       ) : (
-        <div className="grid grid-4 content-in">
-          <div className="card">
+        <div className="grid grid-4">
+          <div className="card content-in" style={{ animationDelay: '0ms' }}>
             <div className="stat-label">Earned leave</div>
             <div className="stat-value">{balances.EARNED ?? '—'}</div>
             <div className="stat-note">§117 · accrued 1 per 18 days worked</div>
           </div>
-          <div className="card">
+          <div className="card content-in" style={{ animationDelay: '30ms' }}>
             <div className="stat-label">Casual leave</div>
             <div className="stat-value">{balances.CASUAL ?? '—'}</div>
             <div className="stat-note">§115 · 10 days/year, lapses</div>
           </div>
-          <div className="card">
+          <div className="card content-in" style={{ animationDelay: '60ms' }}>
             <div className="stat-label">Sick leave</div>
             <div className="stat-value">{balances.SICK ?? '—'}</div>
             <div className="stat-note">§116 · 14 days/year</div>
           </div>
-          <div className="card">
+          <div className="card content-in" style={{ animationDelay: '90ms' }}>
             <div className="stat-label">
               {role === 'EMPLOYEE' ? 'My requests' : 'Pending approvals'}
             </div>

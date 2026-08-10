@@ -75,7 +75,7 @@ export function Attendance({ role }: { role: string }) {
       <p className="page-sub">
         Business dates are derived in Asia/Dhaka; the weekend is Friday and Saturday.
       </p>
-      {error && <p className="error">{error}</p>}
+      {error && <p className="error content-in">{error}</p>}
       {message && <p className="notice">{message}</p>}
 
       <div className="card">

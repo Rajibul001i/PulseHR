@@ -155,8 +155,8 @@ export function Payslips({ role }: { role: string }) {
     <div className="view-fade">
       <h1>Payslips</h1>
       <p className="page-sub">Immutable and line-itemised — every figure is reproducible.</p>
-      {error && <p className="error">{error}</p>}
-      {runMsg && <p className="notice">{runMsg}</p>}
+      {error && <p className="error content-in">{error}</p>}
+      {runMsg && <p className="notice content-in">{runMsg}</p>}
 
       {role === 'HR_ADMIN' && (
         <div className="card">

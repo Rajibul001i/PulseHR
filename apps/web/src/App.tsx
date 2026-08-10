@@ -34,8 +34,8 @@ function Noticeboard() {
       <h1>Noticeboard</h1>
       <p className="page-sub">Central, auditable internal communication.</p>
       {notices === null && <TableSkeleton rows={3} cols={1} />}
-      {notices?.map((n) => (
-        <div className="card content-in" key={n.id}>
+      {notices?.map((n, i) => (
+        <div className="card content-in" key={n.id} style={{ animationDelay: `${Math.min(i, 3) * 30}ms` }}>
           <strong>{n.title}</strong>
           <div className="stat-note">{new Date(n.published_at).toLocaleString()}</div>
           <p style={{ marginBottom: 0 }}>{n.body}</p>
@@ -158,7 +158,7 @@ function Shell() {
             <div className="bar sm">
               <i
                 style={{
-                  width: `${Math.min(100, (sub.seats.seatsUsed / Math.max(1, sub.seats.seatLimit)) * 100)}%`,
+                  transform: `scaleX(${Math.min(1, sub.seats.seatsUsed / Math.max(1, sub.seats.seatLimit))})`,
                   background: sub.seats.approachingLimit ? 'var(--elevated)' : 'var(--accent)',
                 }}
               />

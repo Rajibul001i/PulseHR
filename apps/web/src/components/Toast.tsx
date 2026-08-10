@@ -18,8 +18,8 @@ interface Toast {
   exiting?: boolean;
 }
 
-/** Matches the `slide-out` keyframe duration in styles.css. */
-const EXIT_MS = 160;
+/** Matches the `.toast` exit transition duration in styles.css. */
+const EXIT_MS = 180;
 
 interface ToastApi {
   success: (message: string) => void;

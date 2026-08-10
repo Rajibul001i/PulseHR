@@ -26,13 +26,13 @@ export function AtRisk() {
       .catch((e: Error) => setError(e.message));
   }, [id]);
 
-  if (error) return <p className="error">{error}</p>;
+  if (error) return <p className="error content-in">{error}</p>;
   if (!data) return <p className="notice">Loading…</p>;
 
   const max = Math.max(...data.contributions.map((c) => c.weight), 1);
 
   return (
-    <>
+    <div className="content-in">
       <p className="page-sub">
         <Link to="/">← Dashboard</Link>
       </p>
@@ -89,7 +89,7 @@ export function AtRisk() {
                 </td>
                 <td>
                   <div className="bar">
-                    <i style={{ width: `${(c.points / max) * 100}%` }} />
+                    <i style={{ transform: `scaleX(${c.points / max})` }} />
                   </div>
                 </td>
                 <td className="num">{c.points.toFixed(1)}</td>
@@ -107,6 +107,6 @@ export function AtRisk() {
         identifies reviews as the artifact most affected by favouritism — feeding them in would
         launder that bias into an output that looks objective.
       </p>
-    </>
+    </div>
   );
 }

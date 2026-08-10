@@ -8,6 +8,31 @@ as a changelog.
 
 ## Session 3 — 11 August 2026
 
+### 5. `improve-animations` audit — 5 findings + 3 missed opportunities, all implemented
+
+Ran a full audit (8 categories) against `apps/web`'s motion, now that it had CSS animation
+from the earlier `find-animation-opportunities` pass to actually audit. Vetted findings,
+presented them, and implemented all of them at your request:
+
+| # | Severity | Finding | Fix |
+|---|---|---|---|
+| 1 | **HIGH** | Reduced-motion handling was both too broad (`* { transition: none !important }` killed harmless color transitions) and too narrow (keyframe `animation`s with real movement — toast, content-in — weren't gated at all) | Rewrote to drop movement, keep color/opacity feedback |
+| 2 | MEDIUM | No easing tokens existed; every transition used the browser's weak bare `ease`/`ease-out`; the sidebar drawer wasn't using a drawer curve | Added `--ease-out`, `--ease-in-out`, `--ease-drawer` tokens, applied at all 8 sites |
+| 3 | MEDIUM | Toast used `@keyframes` for enter/exit — the exact pattern to avoid on rapidly-triggered UI (bulk-approving leave requests fires several toasts in quick succession) | Converted to `transition` + `@starting-style`, which retargets instead of restarting |
+| 4 | MEDIUM | Progress bars animated `width` (layout-triggering) instead of `transform` | Switched to `transform: scaleX()` + `transform-origin: left` in `styles.css` and the 3 call sites (`App.tsx`, `AtRisk.tsx`, `Plan.tsx`) |
+| 5 | LOW | `.view-fade` was pure-opacity with no initial transform, inconsistent with the rest of the app's entrances | Added `transform: translateY(4px)` to match |
+
+Plus the missed opportunities: inline error text now fades in (`Login.tsx`, `Attendance.tsx`,
+`Payslips.tsx`, `AtRisk.tsx`, `Plan.tsx`) instead of popping; `AtRisk.tsx` — which never got
+the `.content-in` treatment in the previous pass — now has it; and the card grids on
+`Dashboard.tsx` and `Plan.tsx` (plus the already-per-card Noticeboard) now stagger in at
+30ms per card instead of all at once, capped at 90ms total spread.
+
+**Verified:** typecheck, build, and two Playwright passes — one exercising the full flow
+(login error, dashboard, plan, at-risk detail, toast, sign-out) and one with
+`prefers-reduced-motion: reduce` emulated end to end, confirming the toast's computed
+`transform` stays at identity (no movement) under reduced motion.
+
 ### 4. Implemented the animation-opportunities findings in `apps/web`
 
 Ran the `find-animation-opportunities` skill against the web app, then implemented the six

@@ -33,7 +33,7 @@ export function Plan() {
       .catch((e: Error) => setError(e.message));
   }, []);
 
-  if (error) return <p className="error">{error}</p>;
+  if (error) return <p className="error content-in">{error}</p>;
   if (!sub) return <StatSkeleton count={3} />;
 
   const days = trialDaysLeft(sub);
@@ -68,8 +68,8 @@ export function Plan() {
         </div>
       )}
 
-      <div className="grid grid-2 content-in">
-        <div className="card">
+      <div className="grid grid-2">
+        <div className="card content-in" style={{ animationDelay: '0ms' }}>
           <div className="stat-label">Current plan</div>
           <div className="stat-value">{TIER_LABEL[sub.tier]}</div>
           <div className="stat-note">
@@ -77,7 +77,7 @@ export function Plan() {
           </div>
         </div>
 
-        <div className="card">
+        <div className="card content-in" style={{ animationDelay: '30ms' }}>
           <div className="stat-label">Seats used</div>
           <div className="stat-value">
             {sub.seats.seatsUsed}
@@ -86,7 +86,7 @@ export function Plan() {
           <div className="bar" style={{ marginTop: 10 }}>
             <i
               style={{
-                width: `${seatPct}%`,
+                transform: `scaleX(${seatPct / 100})`,
                 background: sub.seats.approachingLimit ? 'var(--elevated)' : 'var(--accent)',
               }}
             />
@@ -97,11 +97,15 @@ export function Plan() {
 
       <h2>What each plan includes</h2>
       <div className="grid grid-3">
-        {TIER_ORDER.map((tier) => {
+        {TIER_ORDER.map((tier, i) => {
           const current = tier === sub.tier;
           const cumulative = TIER_ORDER.slice(0, TIER_ORDER.indexOf(tier) + 1).flatMap(byTier);
           return (
-            <div className={`card plan-card ${current ? 'current' : ''}`} key={tier}>
+            <div
+              className={`card plan-card content-in ${current ? 'current' : ''}`}
+              key={tier}
+              style={{ animationDelay: `${i * 30}ms` }}
+            >
               {current && <div className="plan-flag">Current plan</div>}
               <div className="stat-label">{TIER_LABEL[tier]}</div>
               <div className="stat-value" style={{ fontSize: 22 }}>

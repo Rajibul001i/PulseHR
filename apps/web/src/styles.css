@@ -40,6 +40,12 @@
   --shadow: 0 8px 24px rgba(16, 32, 48, 0.1);
 }
 
+:root {
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);      /* entrances/exits */
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);  /* moving/morphing on screen */
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);   /* iOS-like drawer curve */
+}
+
 * { box-sizing: border-box; }
 
 body {
@@ -120,7 +126,7 @@ a { color: var(--accent); text-decoration: none; }
   background: rgba(0, 0, 0, 0.5);
   opacity: 0;
   pointer-events: none;
-  transition: opacity 180ms ease;
+  transition: opacity 180ms var(--ease-out);
 }
 .scrim.open { opacity: 1; pointer-events: auto; }
 
@@ -195,7 +201,7 @@ tr:last-child td { border-bottom: none; }
 button {
   font: inherit; font-size: 14px; padding: 8px 15px; border-radius: 8px;
   border: 1px solid var(--border); background: var(--surface-2); color: var(--text);
-  cursor: pointer; transition: border-color .12s ease, background .12s ease, transform .1s ease-out;
+  cursor: pointer; transition: border-color .12s ease, background .12s ease, transform .1s var(--ease-out);
 }
 button:hover:not(:disabled) { border-color: var(--accent); }
 button:active:not(:disabled) { transform: scale(0.97); }
@@ -222,8 +228,9 @@ label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 5px
 .bar { height: 7px; background: var(--surface-2); border-radius: 4px; overflow: hidden; }
 .bar.sm { height: 4px; }
 .bar > i {
-  display: block; height: 100%; background: var(--accent); transition: width .3s ease;
-  @starting-style { width: 0%; }
+  display: block; width: 100%; height: 100%; background: var(--accent);
+  transform-origin: left; transition: transform .3s var(--ease-out);
+  @starting-style { transform: scaleX(0); }
 }
 
 /* ------------------------------- banners -------------------------------- */
@@ -252,18 +259,29 @@ label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 5px
 .skeleton.lg { height: 22px; }
 @keyframes shimmer { to { background-position: -200% 0; } }
 
-/* Bridges the hard cut when a skeleton resolves into real content. */
-.content-in { animation: content-in 140ms ease-out; }
+/* Bridges the hard cut when a skeleton resolves into real content. `backwards` so a
+   staggered child (animation-delay set inline) stays hidden for its full delay instead
+   of flashing at full opacity first. */
+.content-in { animation: content-in 140ms var(--ease-out) backwards; }
 @keyframes content-in { from { opacity: 0; transform: translateY(2px); } }
 
 /* Bridges the payslip list ↔ payslip detail swap. */
-.view-fade { animation: view-fade 180ms ease-out; }
-@keyframes view-fade { from { opacity: 0; } }
+.view-fade { animation: view-fade 180ms var(--ease-out); }
+@keyframes view-fade { from { opacity: 0; transform: translateY(4px); } }
 
-/* Respect users who ask for less motion — NFR-11. */
+@keyframes fade-in { from { opacity: 0; } }
+
+/* Respect users who ask for less motion — NFR-11. Movement is dropped; color/opacity
+   feedback that aids comprehension is kept (not nuked entirely). */
 @media (prefers-reduced-motion: reduce) {
   .skeleton { animation: none; }
-  * { transition: none !important; }
+  .content-in { animation: fade-in 120ms ease backwards; }
+  .view-fade { animation: fade-in 120ms ease; }
+  .toast { transition: opacity 140ms ease; @starting-style { opacity: 0; transform: none; } }
+  .toast.exiting { transform: none; }
+  .sidebar { transition: none; }
+  .bar > i { transition: none; }
+  button:active:not(:disabled) { transform: none; }
 }
 
 .empty {
@@ -308,12 +326,16 @@ label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 5px
   background: var(--surface); border: 1px solid var(--border);
   border-left-width: 3px; border-radius: 9px;
   padding: 11px 13px; font-size: 13px; box-shadow: var(--shadow);
-  animation: slide-in .18s ease;
+  opacity: 1; transform: translateY(0);
+  transition: opacity 180ms var(--ease-out), transform 180ms var(--ease-out);
+  @starting-style { opacity: 0; transform: translateY(6px); }
 }
 .toast.success { border-left-color: var(--low); }
 .toast.error   { border-left-color: var(--high); }
 .toast.info    { border-left-color: var(--accent); }
-.toast.exiting { animation: slide-out 160ms ease forwards; }
+/* A transition (not @keyframes) so a toast dismissed mid-entrance, or several firing in
+   quick succession, retarget smoothly instead of restarting from zero. */
+.toast.exiting { opacity: 0; transform: translateY(6px); }
 .toast-icon {
   flex-shrink: 0; width: 17px; height: 17px; border-radius: 50%;
   display: grid; place-items: center; font-size: 11px; font-weight: 700; color: #fff;
@@ -326,9 +348,6 @@ label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 5px
   margin-left: auto; background: none; border: none; color: var(--muted);
   padding: 0 2px; font-size: 16px; line-height: 1; cursor: pointer;
 }
-@keyframes slide-in { from { opacity: 0; transform: translateY(6px); } }
-@keyframes slide-out { to { opacity: 0; transform: translateY(6px); } }
-
 /* ---------------------------- attendance grid --------------------------- */
 
 .att-grid { overflow-x: auto; }
@@ -362,7 +381,7 @@ label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 5px
   .scrim { display: block; }
   .sidebar {
     position: fixed; inset: 0 auto 0 0; z-index: 50;
-    transform: translateX(-100%); transition: transform .2s ease;
+    transform: translateX(-100%); transition: transform .2s var(--ease-drawer);
     box-shadow: var(--shadow);
   }
   .sidebar.open { transform: translateX(0); }

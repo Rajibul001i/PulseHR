@@ -59,7 +59,7 @@ export function Login() {
           <button className="primary" style={{ width: '100%' }} disabled={busy}>
             {busy ? 'Signing in…' : 'Sign in'}
           </button>
-          {error && <p className="error">{error}</p>}
+          {error && <p className="error content-in">{error}</p>}
         </form>
 
         <p className="notice">
