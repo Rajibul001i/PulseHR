@@ -6,6 +6,47 @@ as a changelog.
 
 ---
 
+## Session 3 — 11 August 2026
+
+### Summary
+
+| | |
+|---|---|
+| GitHub repo | Created and pushed — **[Rajibul001i/PulseHR](https://github.com/Rajibul001i/PulseHR)**, public |
+| LinkedIn post | Still **not posted** — no LinkedIn connector available. Draft finalized with the repo link. |
+
+### 1. Published the repository to GitHub
+
+Repo created under the `Rajibul001i` account and the full existing local history (4 commits,
+`ffe3d10` → `8ed0d4a`) pushed as-is — no history rewrite. Verified after push: public
+visibility, default branch `master`, no secrets or `node_modules` in the tree (`.gitignore`
+was already correct).
+
+**Auth note for next time:** a classic PAT needed **three** scopes to get through
+`gh repo create --source=. --push` cleanly — `repo`, `read:org` (gh validates this even for
+a personal account), and `workflow` (required specifically because this repo has
+`.github/workflows/ci.yml`; GitHub rejects pushes that touch workflow files without it). The
+browser device-code flow (`gh auth login` → web) failed silently twice before switching to a
+token — no config file was ever written to `%APPDATA%\GitHub CLI\`, so nothing had actually
+authenticated despite the browser appearing to complete.
+
+README updated with the repo link at the top.
+
+### 2. Finalized the LinkedIn draft
+
+`_deliverables/linkedin-post-draft.md` — all three options now have the GitHub link inlined,
+and the "add the link once pushed" TODO is resolved. **Not sent.** No LinkedIn connector is
+available in this environment; the draft is ready for you to copy, adjust the tagged
+teammates if needed, and post yourself.
+
+### Outstanding from this session
+
+- **Revoke the PAT** used to authenticate `gh` — `https://github.com/settings/tokens` — now
+  that the push is done, it no longer needs to exist.
+- Post the LinkedIn update yourself when ready (pick Option A/B/C in the draft).
+
+---
+
 ## Session 2 — 10 August 2026
 
 ### Summary
