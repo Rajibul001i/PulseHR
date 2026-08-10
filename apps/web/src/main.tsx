@@ -9,7 +9,10 @@ import './styles.css';
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <Provider store={store}>
-      <BrowserRouter>
+      {/* BASE_URL is '/' for normal dev/build, or the --base flag's value for a subpath
+          deployment (e.g. the GitHub Pages demo at /PulseHR/app/) -- without matching it
+          here, every in-app link would resolve against the wrong root. */}
+      <BrowserRouter basename={import.meta.env.BASE_URL}>
         <App />
       </BrowserRouter>
     </Provider>
