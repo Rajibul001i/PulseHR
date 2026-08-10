@@ -37,6 +37,11 @@ import {
 } from './auth.js';
 import { Repo } from './repo.js';
 import { enqueue, jobStatus } from './jobs/queue.js';
+// Side-effecting imports: each module calls registerHandler() at load time. Without these,
+// PAYROLL_RUN and ATTRITION_SCORING jobs enqueue successfully and then fail immediately
+// with "No handler registered" — the queue has no other way to learn these handlers exist.
+import './jobs/runPayroll.js';
+import './jobs/scoreAll.js';
 import { requireFeature, subscriptionOf } from './entitlement.js';
 
 openDb();

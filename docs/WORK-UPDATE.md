@@ -8,6 +8,55 @@ as a changelog.
 
 ## Session 3 — 11 August 2026
 
+### 8. Re-ran Muradujjaman's SQA pass — found and fixed a critical, previously-misdiagnosed bug
+
+Re-ran the full test stack against the current build: 102 unit tests, 30 smoke checks, and
+`scripts/bughunt.mjs` (the adversarial SQA script from session 2).
+
+**`bughunt.mjs` failed a check that session 2 had waved off as test flakiness.** Its BUG-12
+check — *"re-running a completed payroll period issues no duplicate payslips"* — came back
+with `undefined` instead of `0`. Polling the job directly (rather than trusting a single
+1.5s wait, which is what session 2's harness did) showed why:
+
+```
+state: "FAILED", error: "No handler registered for PAYROLL_RUN"
+```
+
+**Root cause:** `src/jobs/runPayroll.ts` and `src/jobs/scoreAll.ts` each register their job
+handler as a side effect of being *imported* — but `server.ts` never imported either file.
+Both handlers existed in the codebase and were never wired up. Every click of **"Run
+payroll"** or **"Run scoring batch"** in the running app queued a job that failed
+immediately. The unit and smoke suites never caught this because they call the job
+*functions* directly (the same path `npm run job:payroll` takes) — nothing exercised the
+actual API → queue → handler route a browser click uses.
+
+**Fix:** two import lines in `server.ts`. **Re-verified:** `bughunt.mjs` now passes that
+check, and a live payroll run and a live attrition run (`scored: 20`) both reach
+`state: "DONE"` end to end.
+
+Full writeup, including the correction to session 2's "timing artefact" claim, in
+[`13-sqa-defect-report.md`](13-sqa-defect-report.md) §9.
+
+### 7. Removed working artifacts from the public GitHub history
+
+You flagged that `_source-docs/`, `_source-extracts/` and `_deliverables/` — your original
+`.docx`/`.pptx` files, extracted text, and presentation/LinkedIn drafts — didn't belong in
+a public repo alongside the actual project deliverables.
+
+Before touching anything: copied all three folders to `E:\PulseHR-removed-from-git-backup\`
+outside the repo, since `_source-docs/` is the only version-controlled copy of some of your
+original files (the proposal `.docx` itself was already lost earlier this project — see
+Session 2 — everything *except* that is in here).
+
+Then, at your explicit request, used `git-filter-repo` to strip all three paths from **every
+past commit**, not just the current tree, and force-pushed the rewritten history to
+`origin/master`. Added them to `.gitignore` and restored the actual files to their normal
+location on disk afterward — they're still exactly where they were, just no longer tracked
+or visible on GitHub. Verified the removal against the live GitHub API afterward.
+
+**If anyone else had already cloned this repo** (an instructor, a teammate), their clone now
+has a divergent history and will need to re-clone rather than pull.
+
 ### 6. `review-animations` pass on the motion diff — 2 findings, both fixed
 
 Reviewed the two motion commits above against a stricter, independent bar (didn't just

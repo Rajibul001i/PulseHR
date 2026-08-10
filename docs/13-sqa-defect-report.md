@@ -234,3 +234,63 @@ Every fixed defect now has a permanent test, so none can silently return:
 | Integration smoke | 30 | ✅ all passing |
 | Adversarial bug hunt | 17 | 11 pass, 5 unbuilt features, 1 settled |
 | Payslip uniqueness | 1 | ✅ constraint verified at DB level |
+
+---
+
+## 9. Addendum — 11 August 2026
+
+### Correction to §3's BUG-12 note
+
+The note above says the first bug-hunt run's *"re-run issued undefined payslips"* was **"a
+timing artefact in the test, not evidence of the real defect."** That was wrong. Re-running
+`bughunt.mjs` this session reproduced the identical symptom, and this time it was chased down
+by polling the job directly instead of trusting a single 1.5s wait:
+
+```
+state: "FAILED", error: "No handler registered for PAYROLL_RUN"
+```
+
+It was not flakiness. It was — and had been since session 2 — a real, 100%-reproducible bug.
+Leaving the record above unedited rather than quietly fixing the claim; the correction is
+here instead.
+
+### BUG-18 — Severity: **Critical** · Both async job types were non-functional
+
+> **`POST /payroll/runs` and `POST /attrition/runs` both queued successfully and then failed
+> every single time.** "Run payroll" and "Run scoring batch" — the two headline async
+> features ADR-004 exists to support — did not work in the running server.
+
+`src/jobs/queue.ts` is an in-process job runner: `enqueue()` schedules work, and a handler
+registered via `registerHandler()` processes it. `src/jobs/runPayroll.ts` and
+`src/jobs/scoreAll.ts` each call `registerHandler(...)` — but only at module load time, and
+**nothing in `server.ts` ever imported either file.** Both handler registrations simply never
+ran. Every queued job landed on `handlers.get(job.type)` returning `undefined` and failed
+immediately with `No handler registered for <type>`.
+
+- **Detected:** `bughunt.mjs`'s BUG-12 check, then confirmed by polling
+  `GET /jobs/:id` directly against a fresh payroll run and a fresh attrition run.
+- **Why the unit and smoke suites missed it:** both call the job **functions**
+  (`runPayroll()`, `scoreOrganisation()`) directly, exactly as `npm run job:payroll` and
+  `npm run job:score` do on the CLI. Nothing exercised the **API → queue → handler** path a
+  browser click actually takes.
+- **Fix:** two side-effecting imports added to `server.ts`:
+  ```ts
+  import './jobs/runPayroll.js';
+  import './jobs/scoreAll.js';
+  ```
+  Both files already guard their CLI-only block with
+  `import.meta.url === pathToFileURL(process.argv[1]).href`, so importing them for their
+  `registerHandler` side effect does not also trigger the "score every org now" behaviour.
+- **Re-verified:** `bughunt.mjs` BUG-12 now passes. Directly confirmed both job types reach
+  `state: "DONE"` — a payroll run and a fresh attrition run (`scored: 20`,
+  `bands: {LOW:16, MODERATE:1, ELEVATED:3, HIGH:0}`) — via `GET /jobs/:id`.
+
+### Updated regression protection (§7)
+
+| Defect | Permanent test |
+|---|---|
+| BUG-18 | `bughunt.mjs` BUG-12 check now exercises the real API→queue→handler path, not just the job function |
+
+**Recommendation for the team:** add an integration check that hits `POST /payroll/runs` (or
+`/attrition/runs`) and asserts `state: "DONE"` within N seconds — not just that the job
+*enqueues*. That's the gap that let this ship silently broken for a full session.
