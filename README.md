@@ -6,6 +6,12 @@ Predictive Human Resource Information System — groundwork and working prototyp
 
 **Repo:** https://github.com/Rajibul001i/PulseHR
 **Connect:** https://www.linkedin.com/in/rajibul-islam-rabbi
+**Live demo:** https://rajibul001i.github.io/PulseHR/app/ — sign in with any account from the
+[Quick start](#quick-start) below. Backend on Render's free tier: the first request after a
+period of inactivity takes ~30-60s to wake up, and the database reseeds deterministically on
+every restart, so demo data is always fresh, never stale or corrupted.
+**Prototype picker:** https://rajibul001i.github.io/PulseHR/ — three exploratory variants of
+the attrition-risk score view (see `/prototype` skill), not yet promoted into the app above.
 
 ---
 
