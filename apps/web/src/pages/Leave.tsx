@@ -82,9 +82,9 @@ export function Leave({ role }: { role: string }) {
         Balances are derived from an append-only ledger, never stored as a mutable column.
       </p>
       {Object.keys(balances).length > 0 && (
-        <div className="grid grid-4 content-in">
-          {Object.entries(balances).map(([type, days]) => (
-            <div className="card" key={type}>
+        <div className="grid grid-4">
+          {Object.entries(balances).map(([type, days], i) => (
+            <div className="card content-in" key={type} style={{ animationDelay: `${i * 30}ms` }}>
               <div className="stat-label">{type}</div>
               <div className="stat-value">{days}</div>
               <div className="stat-note">days available</div>

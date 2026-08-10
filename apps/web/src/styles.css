@@ -275,7 +275,10 @@ label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 5px
    feedback that aids comprehension is kept (not nuked entirely). */
 @media (prefers-reduced-motion: reduce) {
   .skeleton { animation: none; }
-  .content-in { animation: fade-in 120ms ease backwards; }
+  /* animation-delay needs !important: staggered cards set it inline (higher specificity
+     than this class rule), which would otherwise survive the override and leave a
+     sequential 30/60/90ms reveal even with movement removed. */
+  .content-in { animation: fade-in 120ms ease backwards; animation-delay: 0ms !important; }
   .view-fade { animation: fade-in 120ms ease; }
   .toast { transition: opacity 140ms ease; @starting-style { opacity: 0; transform: none; } }
   .toast.exiting { transform: none; }

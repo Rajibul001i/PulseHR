@@ -8,6 +8,27 @@ as a changelog.
 
 ## Session 3 — 11 August 2026
 
+### 6. `review-animations` pass on the motion diff — 2 findings, both fixed
+
+Reviewed the two motion commits above against a stricter, independent bar (didn't just
+rubber-stamp the prior work). Verdict was **Approve** — no feel-breaking regressions — but
+flagged two real gaps, both fixed:
+
+- **Cohesion:** `Leave.tsx`'s 4-card balance grid used a group-level `.content-in` fade
+  while the structurally identical `Dashboard.tsx` stat-card grid staggered per card.
+  Moved `Leave.tsx` to the same per-card `animationDelay` pattern (`Leave.tsx:86-92`).
+- **Accessibility (the sharper one):** staggered cards set `animationDelay` via inline
+  `style`, which has higher specificity than the `@media (prefers-reduced-motion: reduce)`
+  class override — so reduced-motion users still got a sequential 30/60/90ms reveal even
+  though the movement itself was correctly suppressed. Fixed with
+  `animation-delay: 0ms !important` in the reduced-motion `.content-in` rule
+  (`styles.css:278`) — one of the few justified uses of `!important`.
+
+**Verified:** typecheck, build, and a targeted Playwright check reading computed styles
+directly — confirmed `animation-delay` resolves to `0s` under emulated reduced motion, and
+that `Leave.tsx`'s cards (tested against the `farhana.akter@meridian.test` demo account,
+which has an employee record) carry the expected `0/30/60/90/120ms` sequence normally.
+
 ### 5. `improve-animations` audit — 5 findings + 3 missed opportunities, all implemented
 
 Ran a full audit (8 categories) against `apps/web`'s motion, now that it had CSS animation
