@@ -35,11 +35,16 @@ export class ApiError extends Error {
   }
 }
 
+// '/api' in dev, proxied by Vite to localhost:4000 (vite.config.ts). A static build (e.g.
+// the GitHub Pages demo) has no proxy, so it's pointed at a real deployed API instead via
+// VITE_API_BASE at build time.
+const API_BASE = import.meta.env.VITE_API_BASE ?? '/api';
+
 async function raw(path: string, init: RequestInit = {}): Promise<Response> {
   const headers = new Headers(init.headers);
   headers.set('Content-Type', 'application/json');
   if (tokens.access) headers.set('Authorization', `Bearer ${tokens.access}`);
-  return fetch(`/api${path}`, { ...init, headers });
+  return fetch(`${API_BASE}${path}`, { ...init, headers });
 }
 
 let refreshing: Promise<boolean> | null = null;
@@ -48,7 +53,7 @@ async function tryRefresh(): Promise<boolean> {
   if (!tokens.refresh) return false;
   // De-duplicate: several concurrent 401s must not each burn a refresh token.
   refreshing ??= (async () => {
-    const res = await fetch('/api/auth/refresh', {
+    const res = await fetch(`${API_BASE}/auth/refresh`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ refreshToken: tokens.refresh }),

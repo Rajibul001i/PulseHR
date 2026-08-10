@@ -1,0 +1,19 @@
+# Render Blueprint — deploys the PulseHR API as a live demo backend.
+#
+# Free tier: sleeps after 15 min idle, ~30-60s cold start on the next request, and the
+# SQLite file lives in ephemeral storage — wiped and reseeded on every (re)start. That's a
+# feature here, not a bug: the seed is deterministic (docs/ADR-009), so every wake-up gives
+# the same reproducible demo data, not stale or corrupted state.
+services:
+  - type: web
+    name: pulsehr-api
+    runtime: node
+    plan: free
+    region: singapore
+    buildCommand: npm install
+    startCommand: npm run seed -w @pulsehr/api && npm run start -w @pulsehr/api
+    envVars:
+      - key: NODE_VERSION
+        value: 24
+      - key: PULSEHR_JWT_SECRET
+        generateValue: true
