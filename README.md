@@ -5,6 +5,7 @@ Predictive Human Resource Information System — groundwork and working prototyp
 **Team Pulse** · Southeast University · Information System Design & Software Engineering
 
 **Repo:** https://github.com/Rajibul001i/PulseHR
+**Connect:** https://www.linkedin.com/in/rajibul-islam-rabbi
 
 ---
 
