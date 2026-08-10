@@ -192,9 +192,9 @@ closed**, and saying so is the discipline the model requires.
 
 The implemented model **deliberately excludes review scores** (see
 [`05-attrition-risk-spec.md`](05-attrition-risk-spec.md) §4). The reason is in the team's own
-proposal: §3a says review scores are corrupted by *"favoritism or bias"*, and §4b promises to
-remove that bias. Feeding them into the risk model launders an acknowledged human bias into
-an output that looks objective.
+proposal: it says elsewhere that review scores are corrupted by *"favoritism or bias,"* and
+separately promises to remove that bias. Feeding them into the risk model launders an
+acknowledged human bias into an output that looks objective.
 
 **This is a decision for the team, not for SQA to make silently.** Options:
 

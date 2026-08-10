@@ -14,6 +14,7 @@ as a changelog.
 |---|---|
 | GitHub repo | Created and pushed — **[Rajibul001i/PulseHR](https://github.com/Rajibul001i/PulseHR)**, public |
 | LinkedIn post | Still **not posted** — no LinkedIn connector available. Draft finalized with the repo link. |
+| Doc citations | Removed "Slide X / Proposal §Y" source-location citations from all 16 docs where they were decorative; kept them where a doc's whole job is pointing at a location, and kept every Labour Act legal citation |
 
 ### 1. Published the repository to GitHub
 
@@ -38,6 +39,31 @@ README updated with the repo link at the top.
 and the "add the link once pushed" TODO is resolved. **Not sent.** No LinkedIn connector is
 available in this environment; the draft is ready for you to copy, adjust the tagged
 teammates if needed, and post yourself.
+
+### 3. Removed source-location citations from the docs
+
+You flagged that tables and prose reading like *"Slide 6 vs 14"* or *"§3b"* — pointers back
+to exactly which slide or section of the original flawed proposal/deck a defect came
+from — read as clutter. Went through all 16 files in `docs/` (161 occurrences) and applied
+one rule consistently:
+
+- **Removed/reworded:** citations pointing into the original `PulseHR_Proposal_(25-07-2026).docx`
+  or `PulseHR_Presentation_(01-08-26).pptx` — e.g. "Proposal §3b" → "The proposal states,"
+  "Slide 6 vs 14" contrasts reworded as "one part of the deck... another part..." Table
+  "Where" columns citing slide/section numbers were dropped outright.
+- **Kept:** Bangladesh Labour Act legal citations (§46, §86, §100, §102, §108, §115, §116,
+  §117, §118) — these are binding legal references, not review bookkeeping.
+- **Kept:** internal cross-references between this project's own docs (e.g. "see
+  `05-attrition-risk-spec.md` §9") — navigation aids for documents that still exist.
+- **Kept:** slide numbers in `00-source-document-review.md`'s P2-1, where the defect
+  itself *is* the wrong numbering — the numbers are the subject, not a citation.
+- **Kept:** internal self-references inside `10-proposal-patches.md`'s quoted replacement
+  text — that text is the literal content meant to be pasted into the finished proposal, so
+  a cross-reference like "(§6.1)" inside it is real content the future document will contain,
+  not review commentary.
+
+Verified afterward: no remaining `Slide X` / `Proposal §Y` patterns outside the two
+exceptions above, and every edited markdown table still has consistent column counts.
 
 ### Outstanding from this session
 

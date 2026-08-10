@@ -6,15 +6,15 @@ Copy-paste corrections for `PulseHR_Proposal_(25-07-2026).docx`. Process-model t
 
 ---
 
-## §6.2 — convert to future tense (P2-2, P2-4)
+## Development plan — convert to future tense (P2-2, P2-4)
 
 The current section is written in the **past tense** for work that has not started:
 *"Gathered stakeholder requirements"*, *"We engineered and tested the Automated Payroll
 Engine"*, *"The ATS Kanban board is now fully deployed"*, *"We ran a full SQA testing
-cycle"*. It reads as though the project is finished, and it contradicts §6.1 on the facing
-page, which is correctly in future tense.
+cycle"*. It reads as though the project is finished, and it contradicts the facing page,
+which is correctly in future tense.
 
-Replace the whole of §6.2 with:
+Replace the whole section with:
 
 > ### 6.2 Detailed Planning & Increment Roadmap
 >
@@ -55,7 +55,7 @@ Replace the whole of §6.2 with:
 > against a database seeded to realistic volume, followed by performance tuning and
 > production deployment.
 
-## §3b Economical Feasibility — reconcile with the budget (P1-10)
+## Economic feasibility — reconcile with the budget (P1-10)
 
 Insert after the first sentence:
 
@@ -64,7 +64,7 @@ Insert after the first sentence:
 > during the academic build is under BDT 5,000, because the team uses open-source frameworks
 > and free developer hosting tiers. Both figures are reported in §6.2's budget table.
 
-## §3b Legal Feasibility — replace the compliance claim (P1-4)
+## Legal feasibility — replace the compliance claim (P1-4)
 
 > The system is designed around data privacy and security by default. All personally
 > identifiable information is encrypted in transit with TLS 1.3 and at rest with AES-256,
@@ -85,7 +85,7 @@ Insert after the first sentence:
 > per week (§102). **Every statutory value is held as configuration rather than compiled into
 > the engine**, so an amendment to the Act is a settings change, not a code change.
 
-## §4b — a measurable AI objective (P1-14)
+## AI objectives — make them measurable (P1-14)
 
 Replace the "Actionable AI-Driven Insights" bullet:
 
@@ -96,7 +96,7 @@ Replace the "Actionable AI-Driven Insights" bullet:
 > The longer-term business objective — a measurable reduction in voluntary turnover — is
 > stated as a post-deployment target, since it cannot be observed within an eight-week build.
 
-## §6.4 — fix the Node.js justification (P0-6)
+## Technology justification — fix the Node.js reasoning (P0-6)
 
 The current paragraph claims Node's async I/O makes it good at concurrent payroll. It is
 backwards: payroll is CPU-bound and Node is single-threaded for JavaScript.
@@ -116,7 +116,7 @@ backwards: payroll is CPU-bound and Node is single-threaded for JavaScript.
 > therefore execute in a separate worker process driven by a job queue**, with the API
 > returning `202 Accepted` and a job identifier.
 
-## §6.5 — fix the performance claim (P1-22)
+## Performance claims — fix the numbers (P1-22)
 
 > **Production deployment architecture.** The React frontend is served from Vercel's global
 > edge CDN, giving static-asset time-to-first-byte under 100 ms. The Node.js API runs on
@@ -129,14 +129,14 @@ backwards: payroll is CPU-bound and Node is single-threaded for JavaScript.
 asset delivery with API latency — a CDN does nothing for the round-trip a data-dense
 dashboard actually waits on.)*
 
-## §6.5 — replace the stress-test claim (P1-23)
+## Load-testing claim — replace it (P1-23)
 
 > Performance testing will seed three years of attendance data for five hundred employees —
 > approximately 750,000 attendance rows — and benchmark the four hot paths: the monthly
 > attendance grid, a full payroll run, the nightly scoring batch, and the at-risk dashboard
 > query, each against the stated p95 targets.
 
-## §7 Conclusion — remove the overclaim (P2-10)
+## Conclusion — remove the overclaim (P2-10)
 
 Replace the final paragraph:
 
@@ -147,7 +147,7 @@ Replace the final paragraph:
 Delete: *"The development team is confident it will receive top academic recognition from
 the course instructor."* It is an appeal to the marker rather than an engineering statement.
 
-## New §6.6 — Responsible Use of Predictive Analytics (P1-5)
+## New section — Responsible Use of Predictive Analytics (P1-5)
 
 **Add this section.** It is the single highest-value addition in the whole review — neither
 document contains a word on it.
@@ -182,11 +182,11 @@ document contains a word on it.
 
 ## Minor corrections
 
-| Location | Change |
-|---|---|
-| Table 0 & Appendix E | Settle the spelling: **Muradujjaman** or **Munadujjaman** — currently both appear (P2-3) |
-| §1 | *"live Attrition Risk Score"* → *"an Attrition Risk Score recalculated nightly"* (P0/A6) |
-| §4a | *"real-time behavioural data"* → *"behavioural data, evaluated nightly"* |
-| §6.5 | *"a risk score of 1.0"* → *"a risk score of 100"* (P1-17) |
-| §1 | *"a prototype-driven process with Scrum"* → the ADR-001 wording (P2-12) |
-| §8 | Add in-text citations at every factual claim, especially the Labour Act figures and the replacement-cost claim (P2-9) |
+| Change |
+|---|
+| Settle the spelling: **Muradujjaman** or **Munadujjaman** — currently both appear, in Table 0 and Appendix E (P2-3) |
+| *"live Attrition Risk Score"* → *"an Attrition Risk Score recalculated nightly"* (P0/A6) |
+| *"real-time behavioural data"* → *"behavioural data, evaluated nightly"* |
+| *"a risk score of 1.0"* → *"a risk score of 100"* (P1-17) |
+| *"a prototype-driven process with Scrum"* → the ADR-001 wording (P2-12) |
+| Add in-text citations at every factual claim, especially the Labour Act figures and the replacement-cost claim (P2-9) |

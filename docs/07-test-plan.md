@@ -1,12 +1,12 @@
 # SQA Test Plan
 
-**Resolves:** P1-21, P1-23, and the "10,000 dummy records" claim in proposal §6.2
+**Resolves:** P1-21, P1-23, and the proposal's "10,000 dummy records" claim
 
 ---
 
 ## 1. Test levels
 
-The deck (slide 33) already lists six levels correctly — that section is good and should
+The deck already lists six levels correctly — that section is good and should
 stay. What is missing is what each level actually *runs*, and an automated gate.
 
 | Level | Technique | Where | Status in prototype |
@@ -21,7 +21,7 @@ stay. What is missing is what each level actually *runs*, and an automated gate.
 
 ## 2. Unit tests — white-box (86 passing)
 
-Proposal §6.5 promises boundary testing of the payroll engine and risk scorer. Here is what
+The proposal promises boundary testing of the payroll engine and risk scorer. Here is what
 is actually asserted.
 
 ### `payroll.test.ts` — 26 tests
@@ -92,7 +92,7 @@ both rejected by trigger, and the row is unchanged afterwards.
 
 ## 4. Performance testing — a real load model
 
-**P1-23.** "Stress tests with over 10,000 dummy records" (proposal §6.2) is not a stress
+**P1-23.** The proposal's "stress tests with over 10,000 dummy records" is not a stress
 test — PostgreSQL will not notice 10,000 rows. The dimension that hurts is **attendance
 volume**.
 
@@ -128,8 +128,8 @@ row counts.)*
 
 ## 6. CI gate — P1-21
 
-§6.4 requires code-review approval before merge, but nothing runs the tests. A reviewer
-approving code that does not compile is a normal Friday.
+The proposal requires code-review approval before merge, but nothing runs the tests. A
+reviewer approving code that does not compile is a normal Friday.
 
 `.github/workflows/ci.yml` runs on every PR:
 

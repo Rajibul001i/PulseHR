@@ -127,9 +127,10 @@ is traceable.
 
 **It is excluded from v1.** The reason comes from our own proposal:
 
-- §3a: existing performance reviews in local firms are distorted by *"favoritism or bias"*
-- §4b: PulseHR will *"remove human bias, subjectivity, and favoritism from performance
-  review scores"*
+- It states that existing performance reviews in local firms are distorted by *"favoritism
+  or bias"*
+- It separately promises PulseHR will *"remove human bias, subjectivity, and favoritism from
+  performance review scores"*
 
 Feeding those same scores into the risk model would **launder an acknowledged human bias
 into an algorithmic output that looks objective**. The model would inherit the prejudice and

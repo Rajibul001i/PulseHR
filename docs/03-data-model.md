@@ -7,7 +7,7 @@
 
 ## 1. What the source ERD was missing
 
-Deck slide 26 shows four entities: `EMPLOYEE`, `ATTENDANCE`, `LEAVE_REQUEST`, `PAYROLL_LOG`.
+The source ERD shows four entities: `EMPLOYEE`, `ATTENDANCE`, `LEAVE_REQUEST`, `PAYROLL_LOG`.
 Six advertised modules need roughly twenty-four. The four critical omissions:
 
 | Missing | Consequence |

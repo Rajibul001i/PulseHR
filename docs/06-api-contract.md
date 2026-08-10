@@ -101,7 +101,7 @@ flagged as a flight risk produces retaliation and self-fulfilling-prophecy harms
 
 ## 9. Screen inventory — the 15 screens
 
-Proposal §6.2 promises *"UI/UX wireframes for all 15 main screens"* but never lists them,
+The proposal promises *"UI/UX wireframes for all 15 main screens"* but never lists them,
 so the deliverable cannot be checked off. Here they are.
 
 | # | Screen | Module | Roles | Increment | Prototype |

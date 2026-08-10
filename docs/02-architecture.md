@@ -41,8 +41,8 @@
 
 The important structural difference from the original blueprint: the **AI engine is not a
 tier**. It is a job that runs in the worker process and writes to a table. Drawing it as a
-peer of the three tiers (deck slide 24) overstates it architecturally and hides the fact
-that it must not run in the request path.
+peer of the three tiers, as the original architecture diagram did, overstates it
+architecturally and hides the fact that it must not run in the request path.
 
 ---
 
@@ -172,7 +172,7 @@ Time and randomness are injected as parameters.
 **Why.** These are the two pieces of logic that must be provably correct (money, and a score
 that affects people). Pure functions are exhaustively testable at boundaries without
 fixtures, containers, or a database. It is also the only way to make the SQA plan's
-white-box testing (proposal §6.5) actually feasible.
+white-box testing, promised in the proposal, actually feasible.
 
 **Consequence.** Every payroll rule is unit-testable in milliseconds, which is what lets CI
 run the full suite on every PR.
@@ -220,7 +220,7 @@ targets, not aspirations — each is testable.
 | NFR-14 | Tenant isolation | Cross-tenant read returns **0 rows** | Automated test, every PR |
 | NFR-15 | Password storage | scrypt, N=16384 minimum | Code review + test |
 
-> **On NFR-7:** the original documents promise 99.9% (proposal §6.5). That is 43 minutes of
+> **On NFR-7:** the original documents promise 99.9%. That is 43 minutes of
 > downtime per month, and it is not achievable on a single Render instance with a single
 > RDS instance. 99.5% is honest for the MVP. Say the honest number.
 

@@ -114,7 +114,7 @@ scope negotiation.
 
 # Drop-in replacement text
 
-## Replaces proposal §5.4 (heading and opening)
+## Replaces the process model section (heading and opening)
 
 > ### 5.4 Selected Process Model: The Incremental Model
 >
@@ -137,34 +137,34 @@ scope negotiation.
 > should it require more calibration than planned, three increments of working, tested
 > software have already been delivered and the release is not placed at risk.
 
-## Replaces proposal Table 2 (§5.3)
+## Replaces the process-model comparison table
 
 Use the six-row table under **"Why not the others"** above, verbatim. It differs from the
-current Table 2 in four ways: V-Model and Concurrent Development are added, Scrum is removed
+current comparison table in four ways: V-Model and Concurrent Development are added, Scrum is removed
 (not a lifecycle model), Prototyping's verdict changes to a plain rejection, and
 **Incremental is the selected row**.
 
-## Replaces deck slide 10 — "Prototyping" card
+## Replaces the deck's "Prototyping" card
 
 > **Prototyping** — *Rejected*
 > Built for projects whose requirements cannot be pinned down in advance. Ours are specified
 > — 9 features, 43 functions, 49 user stories with acceptance criteria — and prototyping is
 > silent on how the remaining modules get built.
 
-## Replaces deck slide 12, point 3
+## Replaces the deck's third risk-mitigation point
 
 > **3 · The riskiest module can't sink the release**
 > The AI engine is the final increment. If it needs more calibration time, three increments
 > of working, tested software have already shipped and the platform is already usable.
 
-## Replaces deck slide 29 — "Where this fits in the plan"
+## Replaces the deck's "Where this fits in the plan" slide
 
 > Owns Feature 9 in Increment 4 — the behavioural signal model, its weighting, and the
 > explainable output surfaced on the HR dashboard. Because the Incremental Model places this
 > module last, its technical uncertainty is contained: the rest of the platform is already
 > delivered and tested before this work begins.
 
-## Replaces proposal §1 (process sentence)
+## Replaces the proposal's process-model sentence
 
 > From an engineering perspective, the system will be developed over eight weeks in four
 > increments under the Incremental Process Model, executed with Scrum ceremonies, following

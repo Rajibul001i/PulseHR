@@ -7,8 +7,8 @@
 
 ## 1. The problem the source documents didn't solve
 
-Deck slide 30 says signals are *"weighted by historical correlation with resignations."*
-Proposal §3b says the method is *"logistic regression."*
+The deck says signals are *"weighted by historical correlation with resignations."* The
+proposal says the method is *"logistic regression."*
 
 **A new PulseHR installation has zero historical resignations.** There is no `y`. You cannot
 fit a regression, and the 50-person survey plus two HR interviews yield opinions rather than
@@ -84,10 +84,10 @@ shipped as described.
 
 ### Explicitly excluded from v1
 
-**`review_score_delta`** — the signal slide 30 lists first.
+**`review_score_delta`** — the signal the deck lists first.
 
-Proposal §3a states that existing performance reviews are corrupted by *"favoritism or
-bias"*, and §4b promises to *"remove human bias, subjectivity, and favoritism from
+The proposal states elsewhere that existing performance reviews are corrupted by *"favoritism
+or bias"*, and separately promises to *"remove human bias, subjectivity, and favoritism from
 performance review scores."* Feeding those same scores into the risk model would **launder
 that bias into an algorithmic output that looks objective** — the model would inherit the
 prejudice and lend it a number.
@@ -131,7 +131,7 @@ question.
 **Nightly batch**, 02:00 Asia/Dhaka, in the worker process (ADR-004).
 
 This resolves P0-6's design half and **P1's real-time inconsistency**: the proposal says
-*"live"* and *"real-time"* (§1, §4a), the deck says *"nightly batch"* (slides 24, 30).
+*"live"* and *"real-time,"* the deck says *"nightly batch."*
 **Nightly is correct and is the shipped behaviour** — real-time scoring would require stream
 processing for no benefit, since HR acts on these signals weekly at best. The proposal's
 wording must change, not the design.

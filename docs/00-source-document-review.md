@@ -29,18 +29,19 @@ Defects are grouped by severity. Every one has a concrete fix.
 
 ## P0-1 · The two documents select **different process models**
 
-- Proposal §5.4: *"The engineering team has adopted Pressman and Maxim's **Recommended
+- The proposal states: *"The engineering team has adopted Pressman and Maxim's **Recommended
   Process Model** as PulseHR's governing process, executed sprint by sprint using Scrum."*
-- Deck slide 10: *"**Incremental Model** — Selected."*
+- The deck states: *"**Incremental Model** — Selected."*
 
 These are different models. The proposal explicitly ranks Incremental as
-*"Insufficient alone"* (Table 2) — so the deck selects the model the proposal rejects.
+*"Insufficient alone"* (its process-model comparison table) — so the deck selects the model
+the proposal rejects.
 
 **Why it matters:** this is the single question a software-engineering instructor is
 guaranteed to ask. Right now the two documents give opposite answers.
 
 **Fix:** see [`01-process-model-decision.md`](01-process-model-decision.md). It contains
-drop-in replacement text for proposal §5 and slides 10–12.
+drop-in replacement text for the relevant proposal and deck sections.
 
 ---
 
@@ -48,18 +49,18 @@ drop-in replacement text for proposal §5 and slides 10–12.
 
 Within the one file:
 
-- Slide 10 rejects Prototyping: *"Built for projects where requirements are fuzzy.
+- One slide rejects Prototyping: *"Built for projects where requirements are fuzzy.
   **Ours aren't** — stakeholder research fixed them early."*
-- Slide 28 title: *"The one part **nobody could fully spec up front**."*
-- Slide 29: *"…the go/no-go review that follows — **the whole reason this process model
-  was chosen over plain incremental delivery**."*
+- Another slide's title reads: *"The one part **nobody could fully spec up front**."*
+- A later slide says: *"…the go/no-go review that follows — **the whole reason this process
+  model was chosen over plain incremental delivery**."*
 
-Slide 29 says the model was chosen *over* incremental. Slide 10 says incremental *was*
+One slide says the model was chosen *over* incremental. Another says incremental *was*
 the choice. Both cannot stand.
 
-**Fix:** slide 10's Prototyping card is a plain rejection (requirements *are* specified —
-9 features, 43 functions, 49 user stories with acceptance criteria), and slide 29 drops the
-"chosen over incremental" clause entirely. Exact wording in
+**Fix:** the Prototyping-rejection card stands as a plain rejection (requirements *are*
+specified — 9 features, 43 functions, 49 user stories with acceptance criteria), and the
+later slide drops the "chosen over incremental" clause entirely. Exact wording in
 [`01-process-model-decision.md`](01-process-model-decision.md), which selects a plain
 Incremental lifecycle with **no stage gates** — matching the team's own Features & Functions
 document and Requirements Model.
@@ -68,7 +69,7 @@ document and Requirements Model.
 
 ## P0-3 · The candidate model sets don't match
 
-| Evaluated in Proposal §5.2 | Evaluated in Deck slide 10 |
+| Evaluated in the proposal | Evaluated in the deck |
 |---|---|
 | Waterfall | Waterfall |
 | Prototyping | Prototyping |
@@ -87,8 +88,8 @@ The proposal's **winning model does not appear in the deck at all**.
 
 ## P0-4 · The AI module has **no training data and no label**
 
-- Deck slide 30: *"Each signal weighted by **historical correlation with resignations**."*
-- Proposal §3b: *"…efficient statistical methods based on weighted moving averages and
+- The deck states: *"Each signal weighted by **historical correlation with resignations**."*
+- The proposal states: *"…efficient statistical methods based on weighted moving averages and
   **logistic regression**."*
 
 A fresh PulseHR install at a new customer has **zero historical resignations**. You cannot
@@ -119,8 +120,8 @@ Full spec: [`05-attrition-risk-spec.md`](05-attrition-risk-spec.md).
 
 ## P0-5 · The ERD has **no tenant column** — a multi-tenant SaaS that leaks data
 
-Deck slide 26 shows four entities: `EMPLOYEE`, `ATTENDANCE`, `LEAVE_REQUEST`,
-`PAYROLL_LOG`. None carries an organisation/tenant key. But slide 6 sells PulseHR as
+The source ERD shows four entities: `EMPLOYEE`, `ATTENDANCE`, `LEAVE_REQUEST`,
+`PAYROLL_LOG`. None carries an organisation/tenant key. But the deck sells PulseHR as
 tiered **B2B SaaS** with many customer companies on one codebase.
 
 Without `organisation_id` on every table and a scoping rule enforced in one place,
@@ -135,7 +136,7 @@ Schema: [`03-data-model.md`](03-data-model.md).
 
 ## P0-6 · The Node.js justification is **backwards**
 
-Proposal §6.4: *"Node.js's non-blocking, asynchronous, event-driven I/O architecture is
+The proposal states: *"Node.js's non-blocking, asynchronous, event-driven I/O architecture is
 the main reason for choosing it. At the end of the month, an HR system needs to process
 many payroll calculations at the same time. Node.js manages these parallel tasks
 efficiently, while traditional synchronous servers would slow down under the same heavy
@@ -163,17 +164,18 @@ instructor who knows Node will catch it.
 
 ## P0-7 · Leave balance stored as mutable state → will drift, and has a race condition
 
-Proposal §6.5 and slide 25 both treat leave balance as a value that gets *updated*.
+Both the proposal and the deck treat leave balance as a value that gets *updated*.
 
 Two concurrent approvals of overlapping requests, or one employee submitting two requests
 that each individually fit the balance but together do not, will corrupt the balance. The
-proposal chose PostgreSQL **specifically for ACID** (§6.4) and then never uses it:
-concurrency control is not mentioned once in either document.
+proposal chose PostgreSQL **specifically for ACID** and then never uses it: concurrency
+control is not mentioned once in either document.
 
 **Fix:**
 
 - Balance is **derived, never stored**: an append-only `leave_ledger` of accruals and
-  consumptions. `balance = SUM(delta)`. This also gives you the audit trail §4b demands.
+  consumptions. `balance = SUM(delta)`. This also gives you the audit trail the proposal's
+  own objectives demand.
 - Approval runs in a transaction that takes `SELECT … FOR UPDATE` on the employee's ledger
   rows before re-checking the balance.
 - Overlapping-date-range protection via a Postgres exclusion constraint
@@ -185,9 +187,9 @@ The prototype implements all three, and the test suite includes the double-submi
 
 ## P0-8 · Payroll stores only `net_pay` — unauditable
 
-Slide 26: `PAYROLL_LOG(payroll_id, employee_id, period, net_pay, generated_at)`.
+The source ERD: `PAYROLL_LOG(payroll_id, employee_id, period, net_pay, generated_at)`.
 
-Your own headline objective (§4b) is *"a reliable and **fully auditable** data pipeline"*.
+Your own headline objective is *"a reliable and **fully auditable** data pipeline"*.
 A single `net_pay` figure cannot be audited, disputed, or reproduced. When an employee
 says "my salary is short this month", you have nothing to show them.
 
@@ -225,7 +227,8 @@ configurable `work_week` and an 11-day statutory `holiday_calendar` per §118.
 
 ### P1-1 · Earned leave is stated as a flat 21 days — it is an **accrual**
 
-Proposal §3b: *"statutory earned leaves (**21 days per year** for eligible employees)"*.
+The proposal states: *"statutory earned leaves (**21 days per year** for eligible
+employees)"*.
 
 The Bangladesh Labour Act 2006 **§117** grants annual leave with wages at **one day for
 every 18 days worked** for adult workers in shops, commercial and industrial
@@ -253,7 +256,7 @@ incomplete. Full rules and formulas: [`04-payroll-spec.md`](04-payroll-spec.md).
 
 ### P1-2 · Overtime base is ambiguous — and the likely reading overpays
 
-Proposal §3b: *"overtime pay rates (at **twice the standard hourly rate**)"*.
+The proposal states: *"overtime pay rates (at **twice the standard hourly rate**)"*.
 
 §108 sets overtime at **twice the ordinary rate of *basic* wage** (plus dearness/ad-hoc
 allowance where applicable) — **not** twice the *gross* hourly rate. If the engine computes
@@ -275,7 +278,7 @@ MVP** — say so explicitly rather than claiming compliance you have not built.
 
 ### P1-4 · "Regulatory compliance" names no regulation
 
-Proposal §3b claims *"data privacy, cybersecurity, and **regulatory compliance**"*.
+The proposal claims *"data privacy, cybersecurity, and **regulatory compliance**"*.
 Bangladesh has **no enacted comprehensive data-protection statute** — the Personal Data
 Protection Ordinance has been in draft and consultation, not in force. Claiming compliance
 with an unnamed regulation is an empty claim, and an easy one to be challenged on.
@@ -303,11 +306,11 @@ An HRIS that silently flags employees as "likely to quit" and shows it to their 
 produces two predictable harms: **retaliation** (the flagged employee is quietly sidelined)
 and a **self-fulfilling prophecy** (being treated as a flight risk causes the exit).
 
-There is also a direct internal contradiction. Proposal §3a says existing performance
-reviews are corrupted by *"favoritism or bias"*, and §4b promises to *"remove human bias…
-from performance review scores"*. Slide 30 then feeds **review-score dips** into the risk
-model. You would be laundering the bias you set out to eliminate into an algorithmic output
-that *looks* objective.
+There is also a direct internal contradiction. The proposal says elsewhere that existing
+performance reviews are corrupted by *"favoritism or bias,"* and separately promises to
+*"remove human bias… from performance review scores."* The deck then feeds **review-score
+dips** into the risk model. You would be laundering the bias you set out to eliminate into
+an algorithmic output that *looks* objective.
 
 **Fix — a Responsible Use section in the proposal, and enforcement in code:**
 
@@ -330,9 +333,9 @@ right thing to do.
 
 ### P1-6 · The Starter tier is priced at or below cost
 
-Slide 6: Starter = **BDT 25,000/month**. Slide 14 and proposal §3b: hosting =
-**BDT 20,000–25,000/month**. Gross margin on your entry tier is therefore **0% to
-negative**, before any support labour.
+The deck prices Starter at **BDT 25,000/month**. Elsewhere in the deck and in the proposal,
+hosting is quoted at **BDT 20,000–25,000/month**. Gross margin on your entry tier is
+therefore **0% to negative**, before any support labour.
 
 There is also a category error underneath it: in multi-tenant SaaS, hosting is a **shared
 platform cost**, not a per-customer cost. Quoting a per-month hosting figure as if each
@@ -344,8 +347,8 @@ table: [`08-business-model-corrections.md`](08-business-model-corrections.md).
 
 ### P1-7 · Hosting cost appears **twice in the same deck with different numbers**
 
-- Slide 13 footnote: *"Ongoing hosting after launch (**BDT 6,000–12,000/month**)"*
-- Slide 14 Economical: *"Hosting of roughly **BDT 20,000–25,000/month**"*
+- One slide's footnote: *"Ongoing hosting after launch (**BDT 6,000–12,000/month**)"*
+- Another slide, under Economic feasibility: *"Hosting of roughly **BDT 20,000–25,000/month**"*
 
 A 2× discrepancy on the number that determines gross margin, on adjacent slides.
 
@@ -355,11 +358,11 @@ scale — so use a staged figure, not a single number.
 
 ### P1-8 · The turnover-cost figures are **numerically inconsistent with each other**
 
-- Slide 3 / §1: replacement costs **1–3× annual salary**
-- Slide 14 / §3b: replacement costs **BDT 3–6 lakh**
+- One part of the deck and proposal: replacement costs **1–3× annual salary**
+- Another part of both: replacement costs **BDT 3–6 lakh**
 
 For these to agree, the target employee's annual salary would be **BDT 1–6 lakh** —
-i.e. **BDT 8,000–50,000 per month**. But §3b describes the employee as *"a mid-level
+i.e. **BDT 8,000–50,000 per month**. But the proposal describes the employee as *"a mid-level
 software engineer or project manager"*, who in Dhaka earns far more than that. The two
 framings describe different people.
 
@@ -369,7 +372,7 @@ BDT 4.8–9.6 lakh per exit."* Then the number defends itself.
 
 ### P1-9 · Contingency is labelled ~13% but is 8.9%
 
-Slide 13: contingency **BDT 80,000** against a **BDT 9,00,000** total, described as
+The deck lists contingency at **BDT 80,000** against a **BDT 9,00,000** total, described as
 *"~13% buffer"*.
 
 80,000 ÷ 9,00,000 = **8.9%**. Against the pre-contingency base of 8,20,000 it is **9.8%**.
@@ -380,21 +383,21 @@ Neither is 13%.
 
 ### P1-10 · Budget contradicts the "very little upfront investment" claim
 
-Proposal §3b: *"Developing PulseHR needs **very little upfront investment**."*
-Slide 13: total project budget **BDT 9,00,000**.
+The proposal states: *"Developing PulseHR needs **very little upfront investment**."*
+The deck states a total project budget of **BDT 9,00,000**.
 
 Both can be true — 6,00,000 of that is **notional** team effort costed at market rate, not
 cash leaving anyone's account — but **neither document says so**, so as written they simply
 contradict.
 
-**Fix:** split slide 13 into **Notional cost** (effort at market rate, BDT 6,00,000) and
+**Fix:** split the budget slide into **Notional cost** (effort at market rate, BDT 6,00,000) and
 **Actual cash outlay** (hosting, tooling — realistically under BDT 15,000 during the
 academic build on free tiers). This is also a much stronger slide: it shows you understand
 the difference between cost and expenditure.
 
 ### P1-11 · The AI module is Enterprise-only — you have gated your entire thesis
 
-Slide 6 puts the AI Attrition Risk Module behind the **Enterprise** tier (300+ employees,
+The deck puts the AI Attrition Risk Module behind the **Enterprise** tier (300+ employees,
 custom pricing). But your stated target market is *"mid-sized RMG, IT, and financial-services
 companies currently running HR on spreadsheets"* — Starter and Growth. Those customers get
 a commodity HRIS and compete with you on price alone.
@@ -405,7 +408,7 @@ Enterprise. You sell the differentiator to the market that actually buys.
 
 ### P1-12 · AMC is double-charging, and 99.9% uptime is unsupportable
 
-Proposal §6.5 sells an **Annual Maintenance Contract at 15–20% of development cost**
+The proposal sells an **Annual Maintenance Contract at 15–20% of development cost**
 covering *"99.9% server uptime"*, alongside a monthly SaaS subscription.
 
 Two problems:
@@ -436,9 +439,9 @@ tooltip. Involuntary separations are excluded from the label and from the traini
 
 ### P1-14 · No evaluation metric
 
-*"Reduce voluntary turnover by 15% within a year"* (§4b) is a business outcome, not a model
-metric, and it **cannot be measured within the 8-week project**. You will be asked how you
-know the model works.
+The proposal's *"reduce voluntary turnover by 15% within a year"* is a business outcome,
+not a model metric, and it **cannot be measured within the 8-week project**. You will be
+asked how you know the model works.
 
 **Fix:** **precision@k** — of the top 10 employees the model flags, how many actually leave
 within 90 days. It is the only metric that matters when HR can realistically hold ten
@@ -460,7 +463,7 @@ the base rate alongside.
 | Signal | Problem |
 |---|---|
 | *Clusters of short leaves* | Penalises employees who are genuinely ill or caring for family. Systematically disadvantages parents and people with chronic conditions. |
-| *Drops in review scores* | Reviews are, by §3a, the artifact most corrupted by favouritism. See **P1-5**. |
+| *Drops in review scores* | Reviews are, by the proposal's own admission, the artifact most corrupted by favouritism. See **P1-5**. |
 | *More late check-ins* | Confounded by commute, traffic, shift changes. Weak but usable if normalised against the employee's own department. |
 | *Tenure milestones* | **Strong and defensible.** Keep — it is your best signal. |
 
@@ -471,8 +474,8 @@ proxy), and normalises lateness within department. Full set in
 
 ### P1-17 · Score range is 0–1 in the proposal and 0–100 in the deck
 
-Proposal §6.5: *"an employee with a risk score of **1.0**"*. Slide 30: *"**Risk Score
-(0–100)**"*.
+The proposal states: *"an employee with a risk score of **1.0**"*. The deck states: *"**Risk
+Score (0–100)**"*.
 
 Trivial to fix, and exactly the kind of mismatch that produces a real threshold-comparison
 bug when two people implement against two documents.
@@ -493,7 +496,7 @@ Four entities are shown. The six advertised modules need roughly twenty-four. Mi
 
 ### P1-19 · JWT with no revocation — cannot cut off a terminated employee
 
-*"Secure JWT-based user authentication"* (§6.2). A stateless JWT **cannot be revoked**
+The proposal promises *"secure JWT-based user authentication."* A stateless JWT **cannot be revoked**
 before it expires. For an HRIS this is disqualifying: when an employee is terminated, their
 access must stop **immediately**, not in an hour.
 
@@ -512,7 +515,7 @@ applied by a runner on boot. The prototype ships this pattern.
 
 ### P1-21 · No CI — "mandatory code review" is a policy, not a gate
 
-§6.4 requires code-review approval before merge. Nothing runs the tests. A reviewer
+The proposal requires code-review approval before merge. Nothing runs the tests. A reviewer
 approving code that does not compile is a normal Friday.
 
 **Fix:** GitHub Actions on every PR — typecheck, lint, unit tests, build. Branch protection
@@ -520,7 +523,8 @@ requires it green. Provided in the prototype at `.github/workflows/ci.yml`.
 
 ### P1-22 · "Under 50ms worldwide" is not a claim the architecture supports
 
-§6.5: *"deployed on Vercel's global edge CDN, which keeps load times under 50ms worldwide."*
+The proposal states: *"deployed on Vercel's global edge CDN, which keeps load times under
+50ms worldwide."*
 
 A CDN serves **static assets** quickly. It does nothing for the **API round-trip**, which is
 what a data-dense dashboard actually waits on. With the API on Render and users in Dhaka,
@@ -533,7 +537,8 @@ shows you know which number matters.
 
 ### P1-23 · "Stress test with 10,000 dummy records" is not a stress test
 
-§6.2 Sprint 4. 10,000 rows is a small table; PostgreSQL will not notice it.
+The proposal's Sprint 4 plan claims this. 10,000 rows is a small table; PostgreSQL will not
+notice it.
 
 The dimension that actually hurts is **attendance rows**: 500 employees × 2 punches ×
 250 working days ≈ **250,000 rows per year**, and the monthly attendance grid is the hot
@@ -571,81 +576,85 @@ Footer numbers in slide order:
 Replace them with a proper slide-number placeholder, or run the renumbering script in
 `tools/fix_deck_numbering.py` (provided).
 
-### P2-2 · Proposal §6.2 is written in **past tense for future work**
+### P2-2 · The development-plan section is written in **past tense for future work**
 
 *"**Gathered** stakeholder requirements…"*, *"We **engineered and tested** the Automated
 Payroll Engine…"*, *"The ATS Kanban board **is now fully deployed**."*, *"We **ran** a full
 SQA testing cycle…"*
 
 This is a **proposal**, dated 25 July 2026, for work not yet started. It reads as though the
-project is finished — and it directly contradicts §6.1 on the facing page, which is
-correctly in future tense (*"The team **will visit**…"*).
+project is finished — and it directly contradicts the facing page, which is correctly in
+future tense (*"The team **will visit**…"*).
 
-**Fix:** convert all of §6.2 to future tense. Rewritten section supplied in
+**Fix:** convert the whole section to future tense. Rewritten section supplied in
 [`10-proposal-patches.md`](10-proposal-patches.md).
 
 ### P2-3 · A teammate's name is spelled two different ways
 
-- Proposal Table 0 and deck slide 7: **"Md. Muradujjaman"** (ID 2023200010083)
-- Proposal Appendix E: **"Md. Munadujjaman"**
-- Deck slides 17, 32: **"Munadujjaman"**
+- The proposal's team table and the deck's team-introduction slide: **"Md. Muradujjaman"**
+  (ID 2023200010083)
+- The proposal's appendix: **"Md. Munadujjaman"**
+- Two further slides later in the deck: **"Munadujjaman"**
 
 It is a person's name on a graded submission. Confirm the correct spelling and make it
 consistent in all six places.
 
 ### P2-4 · The methodology and the roadmap disagree about the AI prototype
 
-Proposal §5.4 places the AI prototype and Go/No-Go *"early in Sprint 3"*. Proposal §6.2's
-Sprint 3 description does not mention the AI prototype at all. Deck slide 16 has it right.
+One part of the proposal places the AI prototype and Go/No-Go *"early in Sprint 3"*.
+Another part's Sprint 3 description does not mention the AI prototype at all. The deck
+has it right.
 
-**Fix:** ADR-001 removes the gate entirely. §6.2 is rewritten around four increments in
-[`10-proposal-patches.md`](10-proposal-patches.md), which resolves the disagreement.
+**Fix:** ADR-001 removes the gate entirely. The development-plan section is rewritten around
+four increments in [`10-proposal-patches.md`](10-proposal-patches.md), which resolves the
+disagreement.
 
 ### P2-5 · The Gantt and the increment table disagree on when AI starts
 
-Slide 17 shows *AI Risk Engine Development* beginning around W5. Slide 12 point 3 says the
-AI engine is *"deliberately the final increment"* (W7–8). Slide 29 says *"Sprint 3 prototype
-through Sprint 4 evolution"*.
+The Gantt chart shows *AI Risk Engine Development* beginning around W5. A risk-mitigation
+slide says the AI engine is *"deliberately the final increment"* (W7–8). Another slide says
+*"Sprint 3 prototype through Sprint 4 evolution"*.
 
 These reconcile — prototype in Sprint 3, hardening in Sprint 4 — but nowhere is that said.
 
 **Fix:** relabel the Gantt bars *"AI Prototype (spike)"* W5–6 and *"AI Evolution &
-Calibration"* W7–8, and add one line to slide 12.
+Calibration"* W7–8, and add one line to the risk-mitigation slide.
 
 ### P2-6 · "15 main screens" is never enumerated
 
-§6.2 Sprint 1 promises *"UI/UX wireframes for all 15 main screens"*. The 15 are never
-listed, so the deliverable cannot be checked off.
+The proposal's Sprint 1 plan promises *"UI/UX wireframes for all 15 main screens"*. The 15
+are never listed, so the deliverable cannot be checked off.
 
 **Fix:** enumerate them. A screen inventory is in [`06-api-contract.md`](06-api-contract.md)
 §7, mapped to the modules.
 
-### P2-7 · Slide 14 green-lights a feasibility study that hasn't happened yet
+### P2-7 · The deck green-lights a feasibility study that hasn't happened yet
 
 *"Five dimensions, all green-lit"* — but the research that would establish operational and
-economic feasibility (slide 15) is described in **future tense**. A study that reaches its
-conclusion before its evidence is an assertion.
+economic feasibility is described elsewhere in the deck in **future tense**. A study that
+reaches its conclusion before its evidence is an assertion.
 
 **Fix:** mark Operational and Economic as *"provisional — pending field research in
 Increment 1"*. Honest, and it shows methodological awareness.
 
-### P2-8 · Same tense problem in §5.4 vs §6.1
+### P2-8 · Same tense problem between the process-model and requirements-gathering sections
 
-§5.4 states the survey and interviews *"replace generic requirements-gathering with real
-behavioural data"* — as accomplished fact. §6.1 describes both as future work.
+One section states the survey and interviews *"replace generic requirements-gathering with
+real behavioural data"* — as accomplished fact. Another describes both as future work.
 
 ### P2-9 · Six references, zero in-text citations
 
 The bibliography is fine. But no claim in the body is cited at the point it is made — in
-particular the Labour Act figures (§3b) and the 1–3× replacement-cost claim (§1), which is
-presented as established fact with no source at all.
+particular the Labour Act figures and the 1–3× replacement-cost claim, which is presented
+as established fact with no source at all.
 
 **Fix:** in-text citations at every factual claim, and a real source for the replacement-cost
 figure (SHRM and Gallup both publish usable ones — cite whichever you use).
 
 ### P2-10 · The conclusion oversells and appeals to the grader
 
-§7: *"PulseHR is **ready for commercial launch**"* — for a system that has not been built.
+The conclusion states: *"PulseHR is **ready for commercial launch**"* — for a system that
+has not been built.
 And: *"The development team is confident it will receive **top academic recognition from the
 course instructor**."*
 
@@ -655,18 +664,18 @@ poorly.
 **Fix:** *"PulseHR is designed for commercial viability beyond the academic scope, with a
 clear path from MVP to a deployable B2B product."* Delete the second sentence.
 
-### P2-11 · Slide 10's V-Model and Concurrent Development are unsupported by the proposal
+### P2-11 · The deck's V-Model and Concurrent Development are unsupported by the proposal
 
 The deck rejects two models the proposal never evaluates. If asked *"why did you reject the
 V-Model?"* the proposal has no answer to fall back on.
 
 **Fix:** unify the candidate set (P0-3), then make sure every model in the deck has a
-matching paragraph in §5.2.
+matching paragraph in the proposal's process-model evaluation.
 
-### P2-12 · Proposal §1 says "eight weeks in four sprints, using a prototype-driven process with Scrum" — which is a **third** process description
+### P2-12 · The proposal's introduction says "eight weeks in four sprints, using a prototype-driven process with Scrum" — which is a **third** process description
 
-Distinct from §5.4's "Recommended Process Model via Scrum" and the deck's "Incremental".
-Three documents' worth of process, in two documents.
+Distinct from the proposal's own "Recommended Process Model via Scrum" elsewhere and the
+deck's "Incremental". Three documents' worth of process, in two documents.
 
 ---
 
@@ -681,8 +690,9 @@ Three documents' worth of process, in two documents.
 
 ## Recommended order of work
 
-1. **Decide the process model** (P0-1/2/3) — everything else in §5 and slides 9–12 follows
-   from it. `01-process-model-decision.md` has the decision and the replacement text.
+1. **Decide the process model** (P0-1/2/3) — everything else in the process-model sections
+   of both documents follows from it. `01-process-model-decision.md` has the decision and
+   the replacement text.
 2. **Fix the AI story** (P0-4, P1-13/14/15/16/17) — cold-start scorecard, target
    definition, precision@k. This is what makes the project genuinely good.
 3. **Add the Responsible Use section** (P1-5). Highest marks-per-page in the whole review.

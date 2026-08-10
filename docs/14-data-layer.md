@@ -103,7 +103,7 @@ balance = SUM(delta) WHERE employee_id = ? AND leave_type = ? AND effective_date
 | Can drift under concurrency | **Yes** | No — arithmetic on immutable rows |
 | Answers "why is my balance 7?" | No | **Yes** — every movement has a reason and an actor |
 | Cancellation | `restore()` — silently rewrites history | Compensating `+n` row; history preserved |
-| Satisfies §4b "fully auditable pipeline" | By policy | **Structurally** |
+| Satisfies the proposal's "fully auditable pipeline" objective | By policy | **Structurally** |
 
 The cost is a `SUM` per read instead of a column read, covered by
 `idx_ledger_balance(employee_id, leave_type, effective_date)`. At realistic volumes

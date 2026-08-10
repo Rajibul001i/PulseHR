@@ -13,13 +13,13 @@
 
 ## 1. What the source documents got wrong
 
-| Claim | Where | Problem |
-|---|---|---|
-| *"statutory earned leaves (21 days per year for eligible employees)"* | Proposal §3b | §117 grants **1 day per 18 days worked** — an accrual, ≈20 days over a full year and proportionally less for a mid-year joiner. A flat 21 is wrong, and any flat number is wrong. |
-| *"overtime pay rates (at twice the standard hourly rate)"* | Proposal §3b | §108 sets OT at twice the ordinary rate of **basic** wage. "Standard hourly rate" reads as gross ÷ hours, which **overpays every OT hour on every payslip**. |
-| *"NBR income tax slabs … calculated accurately"* | Proposal §3b | Slabs change with every Finance Act. Never specified, and the investment rebate is not mentioned — a TDS calculation without it over-deducts. |
-| Casual, festival and maternity leave | — | **Absent from both documents entirely.** |
-| `PAYROLL_LOG(… net_pay …)` | Slide 26 | A single net figure cannot be audited or disputed. Contradicts §4b's "fully auditable pipeline". |
+| Claim | Problem |
+|---|---|
+| *"statutory earned leaves (21 days per year for eligible employees)"* | §117 grants **1 day per 18 days worked** — an accrual, ≈20 days over a full year and proportionally less for a mid-year joiner. A flat 21 is wrong, and any flat number is wrong. |
+| *"overtime pay rates (at twice the standard hourly rate)"* | §108 sets OT at twice the ordinary rate of **basic** wage. "Standard hourly rate" reads as gross ÷ hours, which **overpays every OT hour on every payslip**. |
+| *"NBR income tax slabs … calculated accurately"* | Slabs change with every Finance Act. Never specified, and the investment rebate is not mentioned — a TDS calculation without it over-deducts. |
+| Casual, festival and maternity leave | **Absent from both documents entirely.** |
+| `PAYROLL_LOG(… net_pay …)` | A single net figure cannot be audited or disputed. Contradicts the proposal's own "fully auditable pipeline" promise. |
 
 ---
 
@@ -61,8 +61,8 @@ balance(employee, leave_type, as_of)
 
 Append-only. Accrual writes `+n`; an approved request writes `−n`; a cancellation writes a
 compensating `+n` — never a delete. Consequences: the balance cannot drift, every change has
-a reason and an actor, and §4b's "fully auditable pipeline" is satisfied structurally rather
-than by policy.
+a reason and an actor, and the proposal's own "fully auditable pipeline" objective is
+satisfied structurally rather than by policy.
 
 ### Concurrency
 
@@ -198,9 +198,9 @@ judgement.
 
 **Resolves P0-8.**
 
-Slide 26's `PAYROLL_LOG(payroll_id, employee_id, period, net_pay, generated_at)` cannot be
-audited. When an employee says *"my salary is short"*, a single net figure gives you nothing
-to show them.
+The source ERD's `PAYROLL_LOG(payroll_id, employee_id, period, net_pay, generated_at)` cannot
+be audited. When an employee says *"my salary is short"*, a single net figure gives you
+nothing to show them.
 
 Every payslip stores:
 
@@ -253,7 +253,7 @@ engine defaulting to Saturday–Sunday miscounts working days in every Banglades
 
 ## 10. Test boundaries
 
-Proposal §6.5 promises white-box testing of "boundary cases". Here is the actual list,
+The proposal promises white-box testing of "boundary cases". Here is the actual list,
 implemented in `packages/core/test/payroll.test.ts`:
 
 | # | Case | Expectation |

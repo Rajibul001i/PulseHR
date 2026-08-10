@@ -1,7 +1,7 @@
 # Risk Register
 
 Reviewed at every increment retrospective (ADR-001). Neither source document contains a
-risk register, despite proposal §5.1 committing to *"a risk register checked at every sprint
+risk register, despite the proposal committing to *"a risk register checked at every sprint
 retrospective."*
 
 **Exposure = Probability × Impact**, each 1–5.

@@ -6,15 +6,15 @@
 
 ## 1. The arithmetic problems
 
-| # | Where | Problem |
-|---|---|---|
-| P1-6 | Slide 6 vs 14 | Starter tier **BDT 25,000/mo** against stated hosting of **BDT 20,000–25,000/mo** → gross margin **0% or negative** |
-| P1-7 | Slide 13 vs 14 | Hosting quoted as **6,000–12,000** and **20,000–25,000** in the same deck |
-| P1-8 | Slide 3 vs 14 | **1–3× annual salary** and **BDT 3–6 lakh** describe different employees |
-| P1-9 | Slide 13 | Contingency labelled **~13%**; 80,000 ÷ 9,00,000 = **8.9%** |
-| P1-10 | §3b vs slide 13 | *"very little upfront investment"* vs a **BDT 9,00,000** budget |
-| P1-11 | Slide 6 | The AI module — the entire differentiator — is gated to the tier the target market isn't in |
-| P1-12 | §6.5 | AMC charged **on top of** a SaaS subscription; 99.9% uptime promised on non-HA infrastructure |
+| # | Problem |
+|---|---|
+| P1-6 | Starter tier **BDT 25,000/mo** against stated hosting of **BDT 20,000–25,000/mo** → gross margin **0% or negative** |
+| P1-7 | Hosting quoted as **6,000–12,000** in one place and **20,000–25,000** in another, in the same deck |
+| P1-8 | **1–3× annual salary** and **BDT 3–6 lakh** describe different employees |
+| P1-9 | Contingency labelled **~13%**; 80,000 ÷ 9,00,000 = **8.9%** |
+| P1-10 | *"very little upfront investment"* vs a **BDT 9,00,000** budget |
+| P1-11 | The AI module — the entire differentiator — is gated to the tier the target market isn't in |
+| P1-12 | AMC charged **on top of** a SaaS subscription; 99.9% uptime promised on non-HA infrastructure |
 
 ## 2. The category error underneath P1-6
 
@@ -69,7 +69,7 @@ entry tier at cost.
 
 ## 5. Corrections to specific slides
 
-### Slide 6 — tier structure (fixes P1-11)
+### Tier structure (fixes P1-11)
 
 Move a **limited** attrition module down into Growth. The AI is the product's entire thesis;
 gating it to Enterprise leaves the actual target market — *"mid-sized companies running HR on
@@ -83,7 +83,7 @@ spreadsheets"* — buying a commodity HRIS on price.
 
 This is also a better funnel: Growth customers see the feature work, then upgrade for depth.
 
-### Slide 13 — split notional cost from cash outlay (fixes P1-9, P1-10)
+### Split notional cost from cash outlay (fixes P1-9, P1-10)
 
 The current slide reads as though BDT 9,00,000 will be spent. It won't. Split it:
 
@@ -113,7 +113,7 @@ Both numbers are now true, and the slide demonstrates you understand the differe
 *(If you prefer to keep the 9,00,000 headline, set contingency to 80,000 and label it
 **~9%**. Either is fine; the current combination is not.)*
 
-### Slide 3 / 14 — one basis for replacement cost (fixes P1-8)
+### One basis for replacement cost (fixes P1-8)
 
 Replace both figures with a single worked calculation:
 
@@ -128,14 +128,14 @@ Replace both figures with a single worked calculation:
 Cite a source for the multiple (SHRM and Gallup both publish usable figures). The current
 "1–3×" and "BDT 3–6 lakh" cannot both be true of the same employee.
 
-### Slide 14 / §3b — one hosting figure (fixes P1-7)
+### One hosting figure (fixes P1-7)
 
 Use a **staged** figure, not a single number:
 
 > Platform cost is **~BDT 16,000/month** at launch, rising to **~BDT 45,000/month** at 50
 > tenants. Shared across all customers, not billed per customer.
 
-### §6.5 — AMC and uptime (fixes P1-12)
+### AMC and uptime (fixes P1-12)
 
 Replace the AMC paragraph with:
 
