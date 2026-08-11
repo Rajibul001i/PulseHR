@@ -426,16 +426,337 @@ console.log('\nF5 · Payroll');
   );
 }
 
-/* ---------------------------------------------------------------------- */
-console.log('\nF6-F8 · Modules declared in the feature spec');
+// F5.3 / US-27 — a real generated PDF, not a print-to-PDF shortcut. Reuses the 2026-07 run
+// from the BUG-12 block above, so it must run after it.
+{
+  const meRow = (await call('/me', { token: emp.accessToken })).body.employee;
+  const mine = await call(`/payroll/payslips?employeeId=${meRow.id}`, { token: emp.accessToken });
+  const payslipId = mine.body?.[0]?.id;
 
-for (const [id, fn, path] of [
-  ['BUG-13', 'F6 · OKR Performance', '/okr/objectives'],
-  ['BUG-14', 'F7 · Recruitment ATS', '/recruitment/postings'],
-  ['BUG-15', 'F8.3 · Notice read tracking', '/notices/read-report'],
-]) {
-  const r = await call(path, { token: hrA.accessToken });
-  expect(id, fn, `${fn} endpoint exists`, r.status !== 404, `got ${r.status}`);
+  const own = await fetch(`${BASE}/api/payroll/payslips/${payslipId}/pdf`, {
+    headers: { Authorization: `Bearer ${emp.accessToken}` },
+  });
+  const ownBytes = new Uint8Array(await own.arrayBuffer());
+  const ownMagic = Buffer.from(ownBytes.slice(0, 5)).toString('latin1');
+  expect(
+    'BUG-22',
+    'US-27',
+    'Employee can download their own payslip as a real PDF (gross/deductions/net all present)',
+    own.status === 200 &&
+      own.headers.get('content-type') === 'application/pdf' &&
+      ownMagic === '%PDF-' &&
+      ownBytes.length > 800,
+    `status ${own.status}, content-type ${own.headers.get('content-type')}, magic "${ownMagic}", ${ownBytes.length} bytes`,
+  );
+
+  const crossOrg = await fetch(`${BASE}/api/payroll/payslips/${payslipId}/pdf`, {
+    headers: { Authorization: `Bearer ${hrB.accessToken}` },
+  });
+  expect(
+    'BUG-22',
+    'US-27 / P0-5',
+    'A different tenant cannot download this payslip PDF',
+    crossOrg.status === 404,
+    `got ${crossOrg.status}`,
+  );
+}
+
+/* ---------------------------------------------------------------------- */
+console.log('\nF6 · Performance (OKR)');
+
+const starter = (await login('hr@dhakacraft.test')).body;
+const meFarhana = (await call('/me', { token: emp.accessToken })).body.employee;
+
+{
+  const q = '2027-Q1'; // a quarter nothing else in this run touches, to stay order-independent
+
+  const first = await call('/okr/objectives', {
+    method: 'POST',
+    token: hrA.accessToken,
+    body: {
+      employeeId: meFarhana.id,
+      quarter: q,
+      title: 'Ship the onboarding revamp',
+      weightPct: 60,
+      keyResults: [{ title: 'Docs published', targetValue: 10 }],
+    },
+  });
+  expect('BUG-13', 'US-30', 'HR can set a quarterly objective with a key result', first.status === 201, `got ${first.status}`);
+
+  const over = await call('/okr/objectives', {
+    method: 'POST',
+    token: hrA.accessToken,
+    body: {
+      employeeId: meFarhana.id,
+      quarter: q,
+      title: 'Second objective',
+      weightPct: 50,
+      keyResults: [{ title: 'KR', targetValue: 1 }],
+    },
+  });
+  expect(
+    'BUG-13',
+    'US-30',
+    'A second objective that would push weight over 100% for the quarter is refused',
+    over.status === 400,
+    `got ${over.status} — 60% + 50% was accepted`,
+  );
+
+  const listed = await call(`/okr/objectives?employeeId=${meFarhana.id}&quarter=${q}`, { token: emp.accessToken });
+  const krId = listed.body?.[0]?.keyResults?.[0]?.id;
+
+  const notOwner = await call(`/okr/key-results/${krId}/progress`, {
+    method: 'POST',
+    token: mgr.accessToken,
+    body: { currentValue: 3 },
+  });
+  expect(
+    'BUG-13',
+    'US-31',
+    'An employee can update only their own key results',
+    notOwner.status === 403,
+    `got ${notOwner.status} — a different employee updated it`,
+  );
+
+  const overTarget = await call(`/okr/key-results/${krId}/progress`, {
+    method: 'POST',
+    token: emp.accessToken,
+    body: { currentValue: 12 }, // target is 10
+  });
+  expect(
+    'BUG-13',
+    'US-31',
+    'Progress beyond the target is refused without a comment',
+    overTarget.status === 400,
+    `got ${overTarget.status}`,
+  );
+
+  const withComment = await call(`/okr/key-results/${krId}/progress`, {
+    method: 'POST',
+    token: emp.accessToken,
+    body: { currentValue: 12, comment: 'Two bonus guides added beyond scope' },
+  });
+  const recalculated = await call(`/okr/objectives?employeeId=${meFarhana.id}&quarter=${q}`, { token: emp.accessToken });
+  expect(
+    'BUG-13',
+    'US-31',
+    'Progress beyond the target is accepted with a comment, and completion recalculates immediately',
+    withComment.status === 200 && recalculated.body?.[0]?.completionPct === 120,
+    `update status ${withComment.status}, completionPct ${recalculated.body?.[0]?.completionPct}`,
+  );
+
+  await call(`/okr/quarters/${q}/close`, { method: 'POST', token: hrA.accessToken });
+  const afterClose = await call(`/okr/key-results/${krId}/progress`, {
+    method: 'POST',
+    token: emp.accessToken,
+    body: { currentValue: 5, comment: 'should be refused' },
+  });
+  expect(
+    'BUG-13',
+    'US-30',
+    'Objectives become read-only once HR closes the quarter',
+    afterClose.status === 403,
+    `got ${afterClose.status} after closing ${q}`,
+  );
+
+  // HR, not the manager fixture -- Shabnam (mgr) isn't necessarily Farhana's manager, and
+  // the review-score route rightly refuses a non-manager MANAGER the same way OKR objective
+  // routes do. HR_ADMIN has no such restriction, same as the objective-creation call above.
+  const score = await call('/okr/review-scores', {
+    method: 'POST',
+    token: hrA.accessToken,
+    body: { employeeId: meFarhana.id, quarter: q, score: 4 },
+  });
+  const beforePublish = await call(`/okr/review-scores?employeeId=${meFarhana.id}`, { token: emp.accessToken });
+  const publish = await call(`/okr/review-scores/${score.body?.id}/publish`, { method: 'POST', token: hrA.accessToken });
+  const afterPublish = await call(`/okr/review-scores?employeeId=${meFarhana.id}`, { token: emp.accessToken });
+  expect(
+    'BUG-13',
+    'US-32',
+    'A review score is hidden from the employee until published, then visible',
+    score.status === 201 &&
+      !beforePublish.body?.some((s) => s.id === score.body.id) &&
+      publish.status === 200 &&
+      afterPublish.body?.some((s) => s.id === score.body.id),
+    `create ${score.status}, visible-before-publish ${beforePublish.body?.length}, publish ${publish.status}`,
+  );
+
+  const gated = await call('/okr/objectives?employeeId=x', { token: starter.accessToken });
+  expect('BUG-13', 'Business model', 'A STARTER tenant is gated out of the OKR module', gated.status === 402, `got ${gated.status}`);
+}
+
+/* ---------------------------------------------------------------------- */
+console.log('\nF7 · Recruitment (ATS)');
+
+{
+  const futureDeadline = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
+  const vac = await call('/vacancies', {
+    method: 'POST',
+    token: hrA.accessToken,
+    body: { title: 'Bug-hunt QA Engineer', requirements: 'Adversarial mindset', deadline: futureDeadline },
+  });
+  expect('BUG-14', 'US-34', 'HR can publish a vacancy', vac.status === 201, `got ${vac.status}`);
+
+  const meHr = (await call('/me', { token: hrA.accessToken })).body.principal;
+  const publicList = await fetch(`${BASE}/api/public/vacancies?org=${meHr.organisationId}`).then((r) => r.json());
+  expect(
+    'BUG-14',
+    'US-34',
+    'A published vacancy is reachable on a public link with no login',
+    Array.isArray(publicList) && publicList.some((v) => v.id === vac.body.id),
+    `public list had ${publicList?.length ?? 0} entries`,
+  );
+
+  const badApply = await fetch(`${BASE}/api/public/vacancies/${vac.body.id}/apply`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      organisationId: meHr.organisationId,
+      fullName: 'Bad File',
+      email: 'bad@example.com',
+      cvFilename: 'cv.exe',
+      cvMimeType: 'application/x-msdownload',
+      cvContentBase64: Buffer.from('x').toString('base64'),
+    }),
+  });
+  expect('BUG-14', 'US-35', 'A disallowed CV file type is refused before submission completes', badApply.status === 400, `got ${badApply.status}`);
+
+  const apply = await fetch(`${BASE}/api/public/vacancies/${vac.body.id}/apply`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      organisationId: meHr.organisationId,
+      fullName: 'Bughunt Candidate',
+      email: 'bughunt.candidate@example.com',
+      cvFilename: 'cv.pdf',
+      cvMimeType: 'application/pdf',
+      cvContentBase64: Buffer.from('%PDF-1.4 test').toString('base64'),
+    }),
+  }).then((r) => r.json());
+  expect('BUG-14', 'US-35', 'The applicant receives a confirmation carrying a reference number', typeof apply.referenceCode === 'string' && apply.referenceCode.length > 0, `got ${JSON.stringify(apply)}`);
+
+  const list = await call(`/candidates?vacancyId=${vac.body.id}`, { token: hrA.accessToken });
+  const candidateId = list.body?.[0]?.id;
+
+  // Still APPLIED at this point -- an evaluation now must be refused (US-37).
+  const evalTooEarly = await call(`/candidates/${candidateId}/evaluations`, {
+    method: 'POST',
+    token: mgr.accessToken,
+    body: { interviewDate: '2026-09-01', comments: 'n/a', score: 3 },
+  });
+
+  const forward = await call(`/candidates/${candidateId}/stage`, { method: 'POST', token: hrA.accessToken, body: { toStage: 'SHORTLISTED' } });
+  await call(`/candidates/${candidateId}/stage`, { method: 'POST', token: hrA.accessToken, body: { toStage: 'INTERVIEW' } });
+  const backwardsNoReason = await call(`/candidates/${candidateId}/stage`, { method: 'POST', token: hrA.accessToken, body: { toStage: 'APPLIED' } });
+  const backwardsWithReason = await call(`/candidates/${candidateId}/stage`, {
+    method: 'POST',
+    token: hrA.accessToken,
+    body: { toStage: 'APPLIED', reason: 'Panel unavailable, restarting the process' },
+  });
+  expect(
+    'BUG-14',
+    'US-36',
+    'Moving a candidate backwards through the pipeline is refused without a reason, accepted with one',
+    forward.status === 200 && backwardsNoReason.status === 400 && backwardsWithReason.status === 200,
+    `forward ${forward.status}, no-reason ${backwardsNoReason.status}, with-reason ${backwardsWithReason.status}`,
+  );
+
+  // Back to Interview to record a real evaluation (US-37's success path).
+  await call(`/candidates/${candidateId}/stage`, { method: 'POST', token: hrA.accessToken, body: { toStage: 'SHORTLISTED' } });
+  await call(`/candidates/${candidateId}/stage`, { method: 'POST', token: hrA.accessToken, body: { toStage: 'INTERVIEW' } });
+  const evalOk = await call(`/candidates/${candidateId}/evaluations`, {
+    method: 'POST',
+    token: mgr.accessToken,
+    body: { interviewDate: '2026-09-01', comments: 'Strong technical round', score: 4.5 },
+  });
+  expect(
+    'BUG-14',
+    'US-37',
+    'An evaluation can only be added while the candidate is at the Interview stage',
+    evalTooEarly.status === 400 && evalOk.status === 201,
+    `while-applied ${evalTooEarly.status}, while-interview ${evalOk.status}`,
+  );
+
+  await call(`/candidates/${candidateId}/stage`, { method: 'POST', token: hrA.accessToken, body: { toStage: 'OFFER' } });
+  await call(`/candidates/${candidateId}/stage`, { method: 'POST', token: hrA.accessToken, body: { toStage: 'HIRED' } });
+  const convert = await call(`/candidates/${candidateId}/convert`, {
+    method: 'POST',
+    token: hrA.accessToken,
+    body: { employeeCode: `BUGHUNT-${Date.now().toString(36).toUpperCase()}`, designation: 'QA Engineer', departmentId: null, hireDate: '2026-09-15' },
+  });
+  const moveAfterHire = await call(`/candidates/${candidateId}/stage`, { method: 'POST', token: hrA.accessToken, body: { toStage: 'OFFER' } });
+  expect(
+    'BUG-14',
+    'US-38',
+    'A Hired candidate converts to an employee profile in one action and the application then locks',
+    convert.status === 201 && typeof convert.body?.employeeId === 'string' && moveAfterHire.status === 400,
+    `convert ${convert.status}, move-after-hire ${moveAfterHire.status}`,
+  );
+
+  const gated = await call('/vacancies', { token: starter.accessToken });
+  expect('BUG-14', 'Business model', 'A STARTER tenant is gated out of the ATS module', gated.status === 402, `got ${gated.status}`);
+}
+
+/* ---------------------------------------------------------------------- */
+console.log('\nF8 · Digital Noticeboard');
+
+{
+  const noDept = await call('/notices', {
+    method: 'POST',
+    token: hrA.accessToken,
+    body: { title: 'Dept notice', body: 'x', audienceType: 'DEPARTMENTS', departmentIds: [] },
+  });
+  expect('BUG-15', 'US-39', 'A department-targeted notice requires at least one department', noDept.status === 400, `got ${noDept.status}`);
+
+  const depts = (await call('/departments', { token: hrA.accessToken })).body ?? [];
+  const herDept = depts.find((d) => d.id === meFarhana.department_id);
+  const otherDept = depts.find((d) => d.id !== meFarhana.department_id);
+
+  const targeted = await call('/notices', {
+    method: 'POST',
+    token: hrA.accessToken,
+    body: { title: 'For her department', body: 'x', audienceType: 'DEPARTMENTS', departmentIds: [herDept.id], isUrgent: true },
+  });
+  const untargeted = await call('/notices', {
+    method: 'POST',
+    token: hrA.accessToken,
+    body: { title: 'For a different department', body: 'x', audienceType: 'DEPARTMENTS', departmentIds: [otherDept.id] },
+  });
+  const herFeed = (await call('/notices', { token: emp.accessToken })).body ?? [];
+  expect(
+    'BUG-15',
+    'US-39',
+    'An employee sees notices targeted at their own department but not other departments',
+    herFeed.some((n) => n.id === targeted.body.id) && !herFeed.some((n) => n.id === untargeted.body.id),
+    `sees targeted: ${herFeed.some((n) => n.id === targeted.body.id)}, sees other-dept: ${herFeed.some((n) => n.id === untargeted.body.id)}`,
+  );
+  expect(
+    'BUG-15',
+    'US-40',
+    'An urgent notice is pinned above routine ones on the feed',
+    herFeed[0]?.id === targeted.body.id,
+    `top of feed was ${herFeed[0]?.title}`,
+  );
+
+  const beforeRead = herFeed.find((n) => n.id === targeted.body.id)?.read;
+  await call(`/notices/${targeted.body.id}/read`, { method: 'POST', token: emp.accessToken });
+  const afterRead = (await call('/notices', { token: emp.accessToken })).body ?? [];
+  expect(
+    'BUG-15',
+    'US-41',
+    'Opening a notice marks it read, distinguishing it from unread ones',
+    beforeRead === false && afterRead.find((n) => n.id === targeted.body.id)?.read === true,
+    `before ${beforeRead}, after ${afterRead.find((n) => n.id === targeted.body.id)?.read}`,
+  );
+
+  const report = await call(`/notices/${targeted.body.id}/report`, { token: hrA.accessToken });
+  expect(
+    'BUG-15',
+    'US-42',
+    "HR's read report lists read and unread employees separately for a notice",
+    report.status === 200 && Array.isArray(report.body?.read) && report.body.read.some((e) => e.id === meFarhana.id),
+    `status ${report.status}, read ${report.body?.read?.length}, unread ${report.body?.unread?.length}`,
+  );
 }
 
 /* ---------------------------------------------------------------------- */

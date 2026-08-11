@@ -184,6 +184,14 @@ h3 { font-size: 15px; margin: 0 0 6px; }
   margin-bottom: 16px;
 }
 
+/* F8.3: an unread notice is visually distinguished, not just listed identically. */
+.notice-unread { border-left: 3px solid var(--accent); }
+.notice-new-tag {
+  display: inline-block; font-size: 10px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.04em; padding: 1px 7px; border-radius: 999px;
+  background: var(--accent-soft); color: var(--accent);
+}
+
 .grid { display: grid; gap: 14px; }
 .grid-4 { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
 .grid-3 { grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); }

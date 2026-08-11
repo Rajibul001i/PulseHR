@@ -8,6 +8,51 @@ as a changelog.
 
 ## Session 3 — 11 August 2026
 
+### 12. Closed Increment 3 — F5.3 real PDF payslips, F6 OKR, F7 ATS, F8 noticeboard
+
+Continuing the same incremental discipline as #10 and #11: Increment 3 had four open gaps
+(F5.3, F6, F7, F8.2/F8.3). All four are built, tested, and verified through the real UI —
+and building F8 surfaced that F8.1 (audience targeting) had never actually shipped despite
+being marked done, so that got fixed alongside it rather than left as a silent gap.
+
+**F5.3 — real generated PDF payslips.** `GET /api/payroll/payslips/:id/pdf` now streams an
+actual server-generated PDF (`pdfkit`), not a browser print-to-PDF of the page. Caught a
+real layout bug before shipping it: every earnings/deductions line rendered on top of the
+last one, because pdfkit's text-positioning cursor doesn't track the way three column cells
+sharing one captured y-coordinate assumed. Fixed by managing the table's y-cursor explicitly
+— confirmed by generating a payslip and reading the actual PDF, not just checking headers.
+
+**F6 — Performance (OKR).** Managers/HR set quarterly objectives with key results, weighted
+to 100% per employee per quarter (enforced server-side); employees update progress on their
+own key results only, with a required comment for over-target progress; HR closes a quarter,
+after which it's read-only; managers/HR record review scores that stay hidden from the
+employee until explicitly published, with a correction resetting to draft rather than
+silently changing what's already visible.
+
+**F7 — Recruitment (ATS).** HR publishes vacancies; a public, no-login careers page
+(`/careers/:orgId`) lists them and accepts applications with CV upload (same file-type/size
+validation as F2.5); HR runs candidates through a real **drag-and-drop** pipeline board
+(`@dnd-kit/core` — US-36 says "dragged," so this wasn't built as buttons standing in for
+it), with backwards moves requiring a reason; evaluations are gated to the Interview stage;
+a Hired candidate converts to an employee profile in one action and the application locks.
+
+**F8 — Noticeboard.** HR can target a notice at the whole company or specific departments,
+mark it urgent (pins above routine ones, capped at 5 simultaneous pins), and see a read/
+unread report; employees see only notices targeted at them, newest first with urgent ones
+pinned, and opening one marks it read exactly once with a visible unread/read distinction.
+
+**Verified:** new `bughunt.mjs` checks BUG-13 (OKR, 8 assertions), BUG-14 (ATS, 8
+assertions), BUG-15 (noticeboard, 5 assertions), BUG-22 (PDF payslip, 2 assertions). Full
+regression on a clean reseed + freshly-restarted server: 102 unit tests, 20 smoke checks, 50
+bughunt checks — **0 defects, 0 unbuilt features** — typecheck and build both clean. Real
+Playwright passes for all three modules, including a genuine pointer-drag simulation moving
+a candidate card between pipeline columns (not an API call standing in for the gesture) and
+a full public-application flow with no authentication at any point.
+
+**Increment 3 is now closed** — F5, F6, F7 and F8 all sit at full marks. Total function
+coverage is **43/43 (100%)** — every function in the team's own feature spec is built,
+tested, and passing. All four increments are closed under ADR-001.
+
 ### 11. Closed Increment 2 — F2.2 contact update, F2.5 documents, F4.4 notifications
 
 Continuing the same incremental discipline from #10: Increment 2 had three open gaps
@@ -523,8 +568,8 @@ exactly the base rate.
 | 2 | ~~UI Phase 1 — subscription-aware shell, upgrade prompts, seat meter~~ — **done (session 2)** | ~~High~~ |
 | 3 | Settle F6.3/F9.1 — do review scores feed the risk model? (SQA recommends no) | **High** |
 | 4 | ~~F2.2 contact update, F2.5 documents, F4.4 notifications~~ — **done 12 Aug, Increment 2 closed** | ~~Medium~~ |
-| 5 | F6 OKR, F7 ATS, F8.2/F8.3 noticeboard — Increment 3 scope | Medium |
+| 5 | ~~F5.3 real PDF, F6 OKR, F7 ATS, F8 noticeboard~~ — **done 12 Aug, Increment 3 closed** | ~~Medium~~ |
 | 6 | UI Phases 2–4 — toasts, skeletons, empty states, responsive, a11y | Medium |
-| 7 | Real PDF payslips (F5.3 — currently print-to-PDF) | Medium |
+| 7 | Wire real OKR update counts into the `okrEngagementDrop` attrition feature (currently stubbed 0/0 — see docs/13-sqa-defect-report.md §11) | Low |
 | 8 | Payment gateway, proration, invoices | Low (post-MVP) |
 | 9 | Verify every Bangladesh Labour Act figure against the consolidated text | **High** |

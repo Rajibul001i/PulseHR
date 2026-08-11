@@ -150,11 +150,8 @@ subscription layer — see [`11-subscription-model.md`](11-subscription-model.md
 These are **scope**, not failures. Recording them separately matters: reporting unbuilt
 features as defects inflates the count and hides the real ones.
 
-| ID | Function | Increment | Status |
-|---|---|---|---|
-| BUG-13 | F6 OKR Performance | 3 | Not built |
-| BUG-14 | F7 Recruitment ATS | 3 | Not built |
-| BUG-15 | F8.3 Notice read tracking | 3 | Not built |
+Nothing remains in this table — every function declared in the feature spec is now built.
+See §11 for how Increment 3 (the last item that lived here) closed.
 
 **BUG-04 (F1.4 password reset) is fixed as of 11 August 2026 — see §9.** Increment 1 is now
 closed: all five F1 functions pass their acceptance criteria. It was the one function in
@@ -164,6 +161,9 @@ un-closed for two sessions before anyone acted on the earlier flag.
 
 **F2.2, F2.5 and F4.4 are fixed as of 12 August 2026 — see §10.** Increment 2 is now closed:
 every function in F2 and F4 passes its acceptance criteria.
+
+**F5.3, F6, F7 and F8 are fixed as of 12 August 2026 — see §11.** Increment 3 is now closed:
+every function declared in the feature spec has shipped and passes its acceptance criteria.
 
 ---
 
@@ -175,12 +175,12 @@ every function in F2 and F4 passes its acceptance criteria.
 | F2 Employee Info | 5 | **5 / 5** | ✅ | Closed 12 Aug — F2.2 self-service, F2.5 documents shipped |
 | F3 Attendance | 5 | 5 / 5 | ✅ | |
 | F4 Leave | 5 | **5 / 5** | ✅ | Closed 12 Aug — F4.4 in-app notifications shipped |
-| F5 Payroll | 5 | 4 / 5 | ✅ | F5.3 PDF is print-to-PDF, not generated |
-| F6 Performance (OKR) | 4 | 0 / 4 | — | Increment 3 |
-| F7 Recruitment (ATS) | 5 | 0 / 5 | — | Increment 3 |
-| F8 Noticeboard | 4 | 2 / 4 | ✅ | F8.2 priority, F8.3 read tracking missing |
+| F5 Payroll | 5 | **5 / 5** | ✅ | Closed 12 Aug — F5.3 real generated PDF shipped |
+| F6 Performance (OKR) | 4 | **4 / 4** | ✅ | Closed 12 Aug |
+| F7 Recruitment (ATS) | 5 | **5 / 5** | ✅ | Closed 12 Aug |
+| F8 Noticeboard | 4 | **4 / 4** | ✅ | Closed 12 Aug — audience targeting, urgent pinning, read tracking |
 | F9 Attrition Risk | 5 | 5 / 5 | ✅ | |
-| **Total** | **43** | **31 / 43 (72%)** | | |
+| **Total** | **43** | **43 / 43 (100%)** | | |
 
 ---
 
@@ -234,11 +234,11 @@ Every fixed defect now has a permanent test, so none can silently return:
 |---|---|---|
 | Unit (`packages/core`) | **102** | ✅ all passing |
 | Integration smoke | 20 | ✅ all passing |
-| Adversarial bug hunt | 30 | 27 pass, 3 unbuilt features (Increment 3) |
+| Adversarial bug hunt | 50 | ✅ all passing — 0 defects, 0 unbuilt features |
 | Payslip uniqueness | 1 | ✅ constraint verified at DB level |
 
 (Both suites have grown since §2's original count as more user stories gained black-box
-checks — see §10 for the checks added this pass.)
+checks — see §10 and §11 for the checks added in later passes.)
 
 ---
 
@@ -411,3 +411,120 @@ generation, F6 OKR, F7 ATS, F8.2/F8.3) is the only remaining open scope.
 | — (F2.5) | `bughunt.mjs` BUG-19 — upload, type rejection, visibility, metadata, access denial |
 | — (F4.4 / US-19 reason gap) | `bughunt.mjs` BUG-20 — reason-required rejection, decision notification |
 | BUG-21 | Playwright end-to-end script (`verify-notif-real-manager.mjs`) exercises the full notification → sign-out path |
+
+---
+
+## 11. Addendum — 12 August 2026 — Increment 3 closed
+
+Per ADR-001, Increment 3 is not done until every function it contains passes its acceptance
+criteria. Four were open at the start of this pass: **F5.3** (real generated payslip PDFs,
+US-26/US-27), **F6** (Performance/OKR, US-30..US-33), **F7** (Recruitment/ATS,
+US-34..US-38), and **F8.2/F8.3** (notice priority + read tracking, US-40/US-41). All now
+ship — and building F8 also surfaced that **F8.1's audience targeting had never actually
+been built**, despite the function-coverage table previously marking F8 "2/4 done." That is
+recorded here rather than quietly folded into "F8 done," for the same reason §3's BUG-12
+correction stands uncorrected in place: a report that edits its own past claims without
+saying so is not trustworthy.
+
+### F5.3 — real generated PDF payslips
+
+`GET /api/payroll/payslips/:id/pdf` streams an actual PDF built server-side with `pdfkit`,
+not a browser print-to-PDF of the on-screen view. US-27's acceptance criteria ("shows gross,
+each deduction, overtime and net pay") is a document an employee can hand to a bank, not a
+printer-dependent screenshot — the download is authenticated the same way F2.5's document
+downloads are (Bearer token via `fetch` + blob URL, since a plain `<a href>` can't carry it).
+
+**A real layout bug was caught before this shipped**, not by the adversarial suite (an
+HTTP-level check can't see a rendering defect) but by opening the generated PDF and looking
+at it: every earnings/deductions line was rendering on top of the previous one, illegible.
+Root cause: pdfkit's `text(str, x, y)` updates its internal cursor after each positioned
+call, so three column cells sharing one `y` captured before the first call didn't stay
+aligned across rows the way flowing text would. Fixed by managing the table's `y` cursor
+explicitly instead of trusting pdfkit's auto-tracking across multiple positioned calls per
+row — the standard safe pattern for building tables in pdfkit. Re-verified by regenerating
+the PDF and reading it directly; every line item, the totals, and net pay all render
+correctly and in the right place.
+
+- **Verified:** `bughunt.mjs` BUG-22 (content-type, PDF magic bytes, cross-tenant download
+  refused) plus a direct read of a generated PDF.
+
+### F6 — Performance (OKR)
+
+New tables: `objective`, `key_result`, `review_score`. A manager or HR sets a quarterly
+objective with at least one measurable key result (US-30); weight per employee per quarter
+is capped at 100% server-side, not just validated client-side. An employee updates progress
+on their own key results only (US-31); completion is derived at read time, never cached, so
+"recalculates immediately" is true by construction rather than by a cache-invalidation rule
+that could drift. Progress beyond the stated target requires a comment before it's accepted.
+HR closes a quarter org-wide, after which every objective in it is read-only. A manager or
+HR records one review score per employee per quarter (US-32); a correction overwrites the
+existing row and resets it to draft rather than silently changing what the employee already
+saw, with the audit trail living in `audit_log` rather than a second row. The employee sees
+only published scores, in quarter order (US-33).
+
+`okrEngagementDrop` (the existing attrition-model feature expecting `okrUpdatesThisCycle` /
+`okrUpdatesPrevCycle`) is still fed `0`/`0` by `features.ts` — wiring it to real OKR update
+counts is a natural follow-up now that OKR data actually exists, but it is **F9 scope, not
+F6's**, and F9 is already closed at 5/5 with its own acceptance criteria satisfied without
+this signal. Left as a documented follow-up rather than silently expanding this increment.
+
+- **Verified:** `bughunt.mjs` BUG-13 (8 assertions covering every US-30..US-33 acceptance
+  criterion) and a full Playwright pass: manager sets an objective, employee updates
+  progress under and over target (the second correctly blocked until a comment is added),
+  HR closes the quarter.
+
+### F7 — Recruitment (ATS)
+
+New tables: `vacancy`, `candidate`, `candidate_stage_event`, `candidate_evaluation`. HR
+publishes a vacancy (US-34); `GET /api/public/vacancies` and its detail/apply routes are
+exempted from the auth middleware the same way `/auth/*` already is, because US-34/US-35 are
+explicit about "no login" — the tenant is identified by an `org` query parameter the way any
+public multi-tenant careers page has to. A candidate applies with no account (US-35); the CV
+is validated for type and size using the same rules as F2.5's employee documents, and a
+reference code is returned. HR moves a candidate through Applied → Shortlisted → Interview →
+Offer → Hired/Rejected (US-36) via a real drag-and-drop board (`@dnd-kit/core` — the story
+literally says "dragged," so button-only movement would under-deliver the acceptance
+criterion); moving backwards requires a reason, enforced server-side by comparing stage
+rank, not just hidden in the UI. A manager records an interview evaluation only while the
+candidate sits at Interview (US-37). HR converts a Hired candidate into an employee profile
+in one action with no re-typed fields (US-38); the application then locks — attempting to
+move a Hired candidate again is refused.
+
+- **Verified:** `bughunt.mjs` BUG-14 (8 assertions) and a full Playwright pass: HR publishes
+  a vacancy, a public visitor applies with **no login at all**, HR opens the board and
+  **drags** the resulting card from Applied into Shortlisted — a real pointer-drag
+  simulation, not a scripted API call standing in for one.
+
+### F8 — Digital Noticeboard, including the F8.1 gap
+
+New columns on `notice` (`audience_type`, `is_urgent`) and new tables `notice_department`,
+`notice_read`. The noticeboard page previously had **no publish form in the UI at all** —
+only a read-only list — so US-39's audience targeting was fixed alongside US-40/US-41 rather
+than treated as separately in-scope, since all three live on the same entity and shipping
+priority/read-tracking on top of a half-built F8.1 would have left the gap in place. HR
+selects "whole company" or specific departments when publishing (US-39); an employee's feed
+is filtered to company-wide notices plus their own department's. Marking a notice urgent
+pins it above routine ones (US-40), capped at `MAX_URGENT_NOTICES = 5` server-side — a
+constant, not a settings UI, the same pragmatic choice as F2.5's `MAX_DOCUMENT_BYTES`.
+Opening a notice records the read once (`INSERT OR IGNORE`) and the feed visually
+distinguishes unread notices (US-41); HR can see a read/unread breakdown per notice (US-42).
+
+- **Verified:** `bughunt.mjs` BUG-15 (5 assertions: department-audience validation and
+  scoping, urgent pinning order, read-tracking, HR's read report) and a full Playwright
+  pass: HR publishes an urgent company-wide notice, an employee sees it pinned above older
+  ones with a "new" tag, opens it, and the tag disappears.
+
+### Updated function coverage (§5) and not-yet-implemented list (§4)
+
+F5, F6, F7 and F8 all reach full marks. Total function coverage: **43 / 43 (100%)**. All
+four increments are now closed under ADR-001 — every function declared in the team's own
+`PulseHR_Features_Functions.docx` has shipped and has a passing black-box check behind it.
+
+### Updated regression protection (§7)
+
+| Defect | Permanent test |
+|---|---|
+| — (F5.3) | `bughunt.mjs` BUG-22 — content-type, PDF magic bytes, cross-tenant refusal |
+| — (F6) | `bughunt.mjs` BUG-13 — 8 assertions across US-30..US-33 |
+| — (F7) | `bughunt.mjs` BUG-14 — 8 assertions across US-34..US-38 |
+| — (F8, including the F8.1 gap) | `bughunt.mjs` BUG-15 — 5 assertions across US-39..US-42 |

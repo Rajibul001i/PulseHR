@@ -10,11 +10,13 @@
 import express, { type NextFunction, type Request, type Response } from 'express';
 import cors from 'cors';
 import { z } from 'zod';
+import PDFDocument from 'pdfkit';
 import {
   businessDate,
   checkApproval,
   checkSeats,
   entitledFeatures,
+  formatBDT,
   PLAN_FEATURES,
   TIER_PRICE_PAISA,
   dhakaMinutesOfDay,
@@ -38,7 +40,7 @@ import {
   verifyPassword,
   type Principal,
 } from './auth.js';
-import { Repo } from './repo.js';
+import { Repo, publicVacancies, publicVacancy, submitApplication } from './repo.js';
 import { enqueue, jobStatus } from './jobs/queue.js';
 // Side-effecting imports: each module calls registerHandler() at load time. Without these,
 // PAYROLL_RUN and ATTRITION_SCORING jobs enqueue successfully and then fail immediately
@@ -186,7 +188,10 @@ app.post(
 );
 
 app.use('/api', (req, res, next) => {
-  if (req.path.startsWith('/auth')) return next();
+  // F7.1/F7.2 · US-34/US-35: the careers pages are "reachable on a public link with no
+  // login" -- a real acceptance criterion, not an oversight, so /public is exempted the same
+  // way /auth already is.
+  if (req.path.startsWith('/auth') || req.path.startsWith('/public/')) return next();
   return authenticate(req, res, next);
 });
 
@@ -682,6 +687,125 @@ app.get(
   }),
 );
 
+const PAYSLIP_MONTHS = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+];
+
+/**
+ * F5.3 / US-27 — an actually-generated PDF, not a browser print of the page. US-27's
+ * acceptance criteria ("The PDF shows gross, each deduction, overtime and net pay") reads as
+ * a real document an employee can hand to a bank, not a printer-dependent screenshot.
+ */
+app.get(
+  '/api/payroll/payslips/:id/pdf',
+  handler((req, res) => {
+    const p = req.principal!;
+    const found = repoOf(req).payslipForPdf(req.params.id!);
+    if (!found) {
+      res.status(404).json({ error: 'Not found' });
+      return;
+    }
+    const { payslip: ps, lines, employee, organisation } = found;
+    if (p.role === 'EMPLOYEE' && String(ps.employee_id) !== p.employeeId) {
+      res.status(403).json({ error: 'Not your payslip' });
+      return;
+    }
+
+    const filename = `payslip-${employee.employee_code}-${ps.period_year}-${String(ps.period_month).padStart(2, '0')}.pdf`;
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+
+    const doc = new PDFDocument({ size: 'A4', margin: 50 });
+    doc.pipe(res);
+
+    doc.fontSize(18).text(String(organisation.name), { continued: false });
+    doc.fontSize(12).fillColor('#555').text('Payslip').fillColor('#000');
+    doc
+      .fontSize(11)
+      .text(`${PAYSLIP_MONTHS[(ps.period_month as number) - 1]} ${ps.period_year}`);
+    doc.moveDown();
+
+    doc.fontSize(10).fillColor('#333');
+    doc.text(`Employee: ${employee.full_name}  (${employee.employee_code})`);
+    doc.text(`Designation: ${employee.designation}`);
+    doc.fillColor('#000');
+    doc.moveDown();
+
+    const infoRows: [string, string][] = [
+      ['Days in period', String(ps.days_in_period)],
+      ['Leave without pay', String(ps.lwp_days)],
+      ['Payable days', String(ps.payable_days)],
+      ['Overtime hours', String(ps.ot_hours)],
+      ['Overtime hourly rate', formatBDT(ps.ot_hourly_rate as number)],
+      ['Engine version', String(ps.engine_version)],
+    ];
+    for (const [label, value] of infoRows) {
+      doc.fontSize(9).fillColor('#555').text(label, { continued: true, width: 250 });
+      doc.fillColor('#000').text(`  ${value}`);
+    }
+    doc.moveDown();
+
+    // Manually-tracked y cursor for the whole table, rather than relying on doc.y after a
+    // positioned text() call -- pdfkit only advances doc.y to reflect the LAST text() call at
+    // a given moment, so three column cells sharing one captured y each re-set it differently
+    // (the empty-string cells especially), and every row ended up rendering on top of the last.
+    const colX = { label: 50, earn: 330, ded: 440 };
+    const rowH = 16;
+    let y = doc.y;
+
+    doc.fontSize(10).font('Helvetica-Bold');
+    doc.text('Component', colX.label, y);
+    doc.text('Earnings', colX.earn, y, { width: 100, align: 'right' });
+    doc.text('Deductions', colX.ded, y, { width: 100, align: 'right' });
+    y += rowH;
+    doc.moveTo(50, y).lineTo(545, y).strokeColor('#ccc').stroke();
+    y += 6;
+
+    doc.font('Helvetica').fontSize(9);
+    for (const line of lines) {
+      doc.text(String(line.label), colX.label, y, { width: 260 });
+      doc.text(line.sign === 1 ? formatBDT(line.amount as number) : '', colX.earn, y, {
+        width: 100,
+        align: 'right',
+      });
+      doc.text(line.sign === -1 ? formatBDT(line.amount as number) : '', colX.ded, y, {
+        width: 100,
+        align: 'right',
+      });
+      y += rowH;
+    }
+
+    doc.moveTo(50, y).lineTo(545, y).strokeColor('#ccc').stroke();
+    y += 8;
+
+    doc.font('Helvetica-Bold').fontSize(10);
+    doc.text('Total', colX.label, y);
+    doc.text(formatBDT(ps.gross as number), colX.earn, y, { width: 100, align: 'right' });
+    doc.text(formatBDT(ps.total_deductions as number), colX.ded, y, {
+      width: 100,
+      align: 'right',
+    });
+    y += rowH + 10;
+
+    doc.fontSize(13);
+    doc.text(`Net pay: ${formatBDT(ps.net_pay as number)}`, colX.label, y);
+    y += 30;
+
+    doc.font('Helvetica').fontSize(9).fillColor('#666');
+    doc.text(
+      'Overtime is calculated at 2x the ordinary rate of basic wage per the Bangladesh ' +
+        'Labour Act 2006 S108. This payslip is immutable; corrections are issued as a ' +
+        'separate adjustment payslip.',
+      colX.label,
+      y,
+      { width: 495 },
+    );
+
+    doc.end();
+  }),
+);
+
 /** ADR-004: enqueue, do not execute. Returns 202 with a job id. */
 app.post(
   '/api/payroll/runs',
@@ -828,12 +952,456 @@ app.post(
   }),
 );
 
+/* ================================== okr ==================================== */
+
+const QUARTER_RE = /^\d{4}-Q[1-4]$/;
+
+function isManagerOf(repo: Repo, managerEmployeeId: string, targetEmployeeId: string): boolean {
+  return repo.directReportsOf(managerEmployeeId).some((e) => String(e.id) === targetEmployeeId);
+}
+
+app.get(
+  '/api/okr/objectives',
+  requireFeature('okr'),
+  handler((req, res) => {
+    const p = req.principal!;
+    const employeeId = (req.query.employeeId as string) || p.employeeId;
+    if (!employeeId) {
+      res.status(400).json({ error: 'employeeId required' });
+      return;
+    }
+    const repo = repoOf(req);
+    if (p.role === 'EMPLOYEE' && employeeId !== p.employeeId) {
+      res.status(403).json({ error: 'Not your objectives' });
+      return;
+    }
+    if (p.role === 'MANAGER' && employeeId !== p.employeeId && !isManagerOf(repo, p.employeeId!, employeeId)) {
+      res.status(403).json({ error: 'Not one of your reports' });
+      return;
+    }
+    const quarter = typeof req.query.quarter === 'string' ? req.query.quarter : undefined;
+    // US-31: "Updating a current value recalculates the objective completion score
+    // immediately" -- nothing is cached, so completion is just derived here on every read.
+    const withKrs = repo.listObjectives(employeeId, quarter).map((o) => {
+      const found = repo.objectiveWithKeyResults(String(o.id))!;
+      const completion = found.keyResults.length
+        ? found.keyResults.reduce(
+            (sum, kr) => sum + Number(kr.current_value) / Math.max(Number(kr.target_value), 1e-9),
+            0,
+          ) / found.keyResults.length
+        : 0;
+      return { ...o, keyResults: found.keyResults, completionPct: Math.round(completion * 100) };
+    });
+    res.json(withKrs);
+  }),
+);
+
+app.post(
+  '/api/okr/objectives',
+  requireFeature('okr'),
+  requireRole('MANAGER', 'HR_ADMIN'),
+  handler((req, res) => {
+    const body = z
+      .object({
+        employeeId: z.string().min(1),
+        quarter: z.string().regex(QUARTER_RE, 'Quarter must look like 2026-Q3'),
+        title: z.string().min(1),
+        weightPct: z.number().int().min(1).max(100),
+        keyResults: z
+          .array(z.object({ title: z.string().min(1), targetValue: z.number(), unit: z.string().optional() }))
+          .min(1, 'At least one measurable key result is required'),
+      })
+      .parse(req.body);
+    const p = req.principal!;
+    const repo = repoOf(req);
+    if (p.role === 'MANAGER' && !isManagerOf(repo, p.employeeId!, body.employeeId)) {
+      res.status(403).json({ error: 'Not one of your reports' });
+      return;
+    }
+    // US-30: "Objective weights for one employee in one quarter total 100%."
+    const currentTotal = repo.objectiveWeightTotal(body.employeeId, body.quarter);
+    if (currentTotal + body.weightPct > 100) {
+      res.status(400).json({
+        error: `Objective weights for this employee this quarter cannot exceed 100% (already ${currentTotal}%)`,
+      });
+      return;
+    }
+    const id = repo.createObjective(body);
+    res.status(201).json({ id });
+  }),
+);
+
+app.post(
+  '/api/okr/key-results/:id/progress',
+  requireFeature('okr'),
+  handler((req, res) => {
+    const { currentValue, comment } = z
+      .object({ currentValue: z.number(), comment: z.string().optional() })
+      .parse(req.body);
+    const p = req.principal!;
+    const repo = repoOf(req);
+    const kr = repo.keyResultWithObjective(req.params.id!);
+    if (!kr) {
+      res.status(404).json({ error: 'Not found' });
+      return;
+    }
+    // US-31: "An employee can update only their own key results."
+    if (kr.objective_employee_id !== p.employeeId) {
+      res.status(403).json({ error: 'Not your key result' });
+      return;
+    }
+    // US-30: "Objectives become read-only once the quarter closes."
+    if (kr.objective_closed_at) {
+      res.status(403).json({ error: 'This quarter is closed and read-only' });
+      return;
+    }
+    // US-31: "Progress beyond the target requires a comment before it is accepted."
+    if (currentValue > Number(kr.target_value) && !comment?.trim()) {
+      res.status(400).json({ error: 'A comment is required when progress exceeds the target' });
+      return;
+    }
+    repo.updateKeyResultProgress(req.params.id!, currentValue, comment);
+    res.json({ ok: true });
+  }),
+);
+
+app.post(
+  '/api/okr/quarters/:quarter/close',
+  requireFeature('okr'),
+  requireRole('HR_ADMIN'),
+  handler((req, res) => {
+    repoOf(req).closeQuarter(req.params.quarter!);
+    res.json({ ok: true });
+  }),
+);
+
+app.post(
+  '/api/okr/review-scores',
+  requireFeature('okr'),
+  requireRole('MANAGER', 'HR_ADMIN'),
+  handler((req, res) => {
+    const { employeeId, quarter, score } = z
+      .object({
+        employeeId: z.string().min(1),
+        quarter: z.string().regex(QUARTER_RE),
+        score: z.number().min(1).max(5),
+      })
+      .parse(req.body);
+    const p = req.principal!;
+    const repo = repoOf(req);
+    if (p.role === 'MANAGER' && !isManagerOf(repo, p.employeeId!, employeeId)) {
+      res.status(403).json({ error: 'Not one of your reports' });
+      return;
+    }
+    const id = repo.upsertReviewScore({ employeeId, quarter, score });
+    res.status(201).json({ id });
+  }),
+);
+
+app.post(
+  '/api/okr/review-scores/:id/publish',
+  requireFeature('okr'),
+  requireRole('MANAGER', 'HR_ADMIN'),
+  handler((req, res) => {
+    const ok = repoOf(req).publishReviewScore(req.params.id!);
+    if (!ok) {
+      res.status(404).json({ error: 'Not found' });
+      return;
+    }
+    res.json({ ok: true });
+  }),
+);
+
+app.get(
+  '/api/okr/review-scores',
+  requireFeature('okr'),
+  handler((req, res) => {
+    const p = req.principal!;
+    const employeeId = (req.query.employeeId as string) || p.employeeId;
+    if (!employeeId) {
+      res.status(400).json({ error: 'employeeId required' });
+      return;
+    }
+    const repo = repoOf(req);
+    if (p.role === 'EMPLOYEE' && employeeId !== p.employeeId) {
+      res.status(403).json({ error: 'Not your review history' });
+      return;
+    }
+    if (p.role === 'MANAGER' && employeeId !== p.employeeId && !isManagerOf(repo, p.employeeId!, employeeId)) {
+      res.status(403).json({ error: 'Not one of your reports' });
+      return;
+    }
+    // US-33: an employee sees only published scores; a manager/HR (who records them) sees all.
+    const publishedOnly = p.role === 'EMPLOYEE';
+    res.json(repo.reviewScoresFor(employeeId, publishedOnly));
+  }),
+);
+
+/* ================================== ats ===================================== */
+
+app.get(
+  '/api/vacancies',
+  requireFeature('ats'),
+  handler((req, res) => {
+    res.json(repoOf(req).listVacancies());
+  }),
+);
+
+app.post(
+  '/api/vacancies',
+  requireFeature('ats'),
+  requireRole('HR_ADMIN'),
+  handler((req, res) => {
+    const { title, requirements, deadline } = z
+      .object({
+        title: z.string().min(1),
+        requirements: z.string().min(1),
+        deadline: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      })
+      .parse(req.body);
+    const id = repoOf(req).createVacancy({ title, requirements, deadline });
+    res.status(201).json({ id });
+  }),
+);
+
+app.get(
+  '/api/candidates',
+  requireFeature('ats'),
+  requireRole('MANAGER', 'HR_ADMIN'),
+  handler((req, res) => {
+    const vacancyId = typeof req.query.vacancyId === 'string' ? req.query.vacancyId : undefined;
+    res.json(repoOf(req).listCandidates(vacancyId));
+  }),
+);
+
+app.get(
+  '/api/candidates/:id',
+  requireFeature('ats'),
+  requireRole('MANAGER', 'HR_ADMIN'),
+  handler((req, res) => {
+    const repo = repoOf(req);
+    const candidate = repo.candidate(req.params.id!);
+    if (!candidate) {
+      res.status(404).json({ error: 'Not found' });
+      return;
+    }
+    res.json({
+      candidate,
+      stageHistory: repo.candidateStageHistory(req.params.id!),
+      evaluations: repo.candidateEvaluations(req.params.id!),
+    });
+  }),
+);
+
+// Mirrors the F2.5 employee-document download: HR/panel only, Bearer-token gated.
+app.get(
+  '/api/candidates/:id/cv',
+  requireFeature('ats'),
+  requireRole('MANAGER', 'HR_ADMIN'),
+  handler((req, res) => {
+    const cv = repoOf(req).candidateCv(req.params.id!);
+    if (!cv) {
+      res.status(404).json({ error: 'Not found' });
+      return;
+    }
+    res.setHeader('Content-Type', String(cv.cv_mime_type));
+    res.setHeader(
+      'Content-Disposition',
+      `inline; filename="${String(cv.cv_filename).replace(/"/g, '')}"`,
+    );
+    res.send(cv.cv_content);
+  }),
+);
+
+app.post(
+  '/api/candidates/:id/stage',
+  requireFeature('ats'),
+  requireRole('HR_ADMIN'),
+  handler((req, res) => {
+    const { toStage, reason } = z
+      .object({
+        toStage: z.enum(['APPLIED', 'SHORTLISTED', 'INTERVIEW', 'OFFER', 'HIRED', 'REJECTED']),
+        reason: z.string().optional(),
+      })
+      .parse(req.body);
+    const result = repoOf(req).moveCandidateStage(req.params.id!, toStage, reason);
+    if (!result.ok) {
+      const status = result.error === 'NOT_FOUND' ? 404 : 400;
+      const message =
+        result.error === 'ALREADY_HIRED'
+          ? 'This application is closed as Hired and cannot be moved again'
+          : result.error === 'REASON_REQUIRED'
+            ? 'Moving a candidate backwards requires a reason'
+            : 'Not found';
+      res.status(status).json({ error: message });
+      return;
+    }
+    res.json({ ok: true });
+  }),
+);
+
+app.post(
+  '/api/candidates/:id/evaluations',
+  requireFeature('ats'),
+  requireRole('MANAGER', 'HR_ADMIN'),
+  handler((req, res) => {
+    const { interviewDate, comments, score } = z
+      .object({
+        interviewDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        comments: z.string().min(1),
+        score: z.number().min(1).max(5),
+      })
+      .parse(req.body);
+    const result = repoOf(req).addCandidateEvaluation({
+      candidateId: req.params.id!,
+      interviewDate,
+      comments,
+      score,
+    });
+    if (!result.ok) {
+      res
+        .status(result.error === 'NOT_FOUND' ? 404 : 400)
+        .json({
+          error:
+            result.error === 'NOT_AT_INTERVIEW_STAGE'
+              ? 'An evaluation can only be added for a candidate at the Interview stage'
+              : 'Not found',
+        });
+      return;
+    }
+    res.status(201).json({ id: result.id });
+  }),
+);
+
+app.post(
+  '/api/candidates/:id/convert',
+  requireFeature('ats'),
+  requireRole('HR_ADMIN'),
+  handler((req, res) => {
+    const { employeeCode, designation, departmentId, hireDate } = z
+      .object({
+        employeeCode: z.string().min(1),
+        designation: z.string().min(1),
+        departmentId: z.string().nullable().default(null),
+        hireDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      })
+      .parse(req.body);
+    const result = repoOf(req).convertCandidateToEmployee(req.params.id!, {
+      employeeCode,
+      designation,
+      departmentId,
+      hireDate,
+    });
+    if (!result.ok) {
+      const message =
+        result.error === 'NOT_HIRED'
+          ? 'Only a candidate at the Hired stage can be converted'
+          : result.error === 'ALREADY_CONVERTED'
+            ? 'This candidate has already been converted to an employee'
+            : 'Not found';
+      res.status(result.error === 'NOT_FOUND' ? 404 : 400).json({ error: message });
+      return;
+    }
+    res.status(201).json({ employeeId: result.employeeId });
+  }),
+);
+
+/* ============================ public careers =============================
+ * F7.1 · US-34 and F7.2 · US-35 — reachable with no login. Exempted from the auth
+ * middleware above (paths starting with /public/). Tenant comes from the URL, the way any
+ * public multi-tenant careers page has to identify which company's board it's showing.
+ */
+
+app.get(
+  '/api/public/vacancies',
+  handler((req, res) => {
+    const orgId = typeof req.query.org === 'string' ? req.query.org : '';
+    if (!orgId) {
+      res.status(400).json({ error: 'org required' });
+      return;
+    }
+    res.json(publicVacancies(orgId));
+  }),
+);
+
+app.get(
+  '/api/public/vacancies/:id',
+  handler((req, res) => {
+    const orgId = typeof req.query.org === 'string' ? req.query.org : '';
+    const vacancy = orgId ? publicVacancy(orgId, req.params.id!) : undefined;
+    if (!vacancy) {
+      res.status(404).json({ error: 'Not found' });
+      return;
+    }
+    res.json(vacancy);
+  }),
+);
+
+app.post(
+  '/api/public/vacancies/:id/apply',
+  handler((req, res) => {
+    const { organisationId, fullName, email, phone, cvFilename, cvMimeType, cvContentBase64 } = z
+      .object({
+        organisationId: z.string().min(1),
+        fullName: z.string().min(1),
+        email: z.string().email(),
+        phone: z.string().optional(),
+        cvFilename: z.string().min(1),
+        cvMimeType: z.string().min(1),
+        cvContentBase64: z.string().min(1),
+      })
+      .parse(req.body);
+
+    // Same file-type and size rules as F2.5's employee documents (US-35: "validated for file
+    // type and size before submission completes").
+    if (!ALLOWED_DOCUMENT_TYPES.has(cvMimeType)) {
+      res.status(400).json({ error: `File type ${cvMimeType} is not accepted. Use PDF, JPEG or PNG.` });
+      return;
+    }
+    const cvContent = Buffer.from(cvContentBase64, 'base64');
+    if (cvContent.byteLength > MAX_DOCUMENT_BYTES) {
+      res.status(413).json({ error: `CV exceeds the ${MAX_DOCUMENT_BYTES / 1024 / 1024}MB limit.` });
+      return;
+    }
+
+    const result = submitApplication({
+      orgId: organisationId,
+      vacancyId: req.params.id!,
+      fullName,
+      email,
+      phone,
+      cvFilename,
+      cvMimeType,
+      cvContent,
+    });
+    if (!result.ok) {
+      const message =
+        result.error === 'DEADLINE_PASSED'
+          ? 'This vacancy is no longer accepting applications'
+          : 'Vacancy not found';
+      res.status(result.error === 'NOT_FOUND' ? 404 : 400).json({ error: message });
+      return;
+    }
+    // US-35: "The applicant receives a confirmation carrying a reference number."
+    res.status(201).json({ referenceCode: result.referenceCode });
+  }),
+);
+
 /* ================================ notices ================================= */
+
+// US-40: "The number of simultaneously pinned notices is capped by configuration." A constant
+// here, not an admin-editable setting -- consistent with how MAX_DOCUMENT_BYTES (F2.5) is
+// configured elsewhere: real, enforced, and adjustable in one place without a settings UI.
+const MAX_URGENT_NOTICES = 5;
 
 app.get(
   '/api/notices',
   handler((req, res) => {
-    res.json(repoOf(req).notices());
+    const p = req.principal!;
+    const isPrivileged = p.role === 'HR_ADMIN' || p.role === 'MANAGER';
+    const notices = repoOf(req).notices(p.employeeId ?? null, isPrivileged);
+    const readIds = p.employeeId ? repoOf(req).readNoticeIdsFor(p.employeeId) : new Set<string>();
+    res.json(notices.map((n) => ({ ...n, read: readIds.has(String(n.id)) })));
   }),
 );
 
@@ -841,11 +1409,83 @@ app.post(
   '/api/notices',
   requireRole('HR_ADMIN'),
   handler((req, res) => {
-    const { title, body } = z
-      .object({ title: z.string().min(1), body: z.string().min(1) })
+    const { title, body, audienceType, departmentIds, isUrgent } = z
+      .object({
+        title: z.string().min(1),
+        body: z.string().min(1),
+        audienceType: z.enum(['COMPANY', 'DEPARTMENTS']),
+        departmentIds: z.array(z.string()).default([]),
+        isUrgent: z.boolean().default(false),
+      })
       .parse(req.body);
-    const id = repoOf(req).createNotice(title, body, req.principal!.userId);
+
+    if (audienceType === 'DEPARTMENTS' && departmentIds.length === 0) {
+      res.status(400).json({ error: 'Select at least one department, or target the whole company' });
+      return;
+    }
+    const repo = repoOf(req);
+    if (isUrgent && repo.urgentNoticeCount() >= MAX_URGENT_NOTICES) {
+      res.status(400).json({ error: `At most ${MAX_URGENT_NOTICES} notices can be pinned urgent at once` });
+      return;
+    }
+
+    const id = repo.createNotice({
+      title,
+      body,
+      publishedBy: req.principal!.userId,
+      audienceType,
+      departmentIds,
+      isUrgent,
+    });
     res.status(201).json({ id });
+  }),
+);
+
+// F8.2 / US-40 — pin or unpin a notice after publication.
+app.post(
+  '/api/notices/:id/urgent',
+  requireRole('HR_ADMIN'),
+  handler((req, res) => {
+    const { isUrgent } = z.object({ isUrgent: z.boolean() }).parse(req.body);
+    const repo = repoOf(req);
+    if (isUrgent && repo.urgentNoticeCount() >= MAX_URGENT_NOTICES) {
+      res.status(400).json({ error: `At most ${MAX_URGENT_NOTICES} notices can be pinned urgent at once` });
+      return;
+    }
+    const ok = repo.setNoticeUrgent(req.params.id!, isUrgent);
+    if (!ok) {
+      res.status(404).json({ error: 'Not found' });
+      return;
+    }
+    res.json({ ok: true });
+  }),
+);
+
+// F8.3 / US-41 — "Opening a notice records the employee and the time, once only."
+app.post(
+  '/api/notices/:id/read',
+  handler((req, res) => {
+    const employeeId = req.principal!.employeeId;
+    if (!employeeId) {
+      res.status(400).json({ error: 'No employee profile on this account' });
+      return;
+    }
+    repoOf(req).markNoticeRead(req.params.id!, employeeId);
+    res.json({ ok: true });
+  }),
+);
+
+// US-42 — who has (and hasn't) opened a notice, for the compliance file.
+app.get(
+  '/api/notices/:id/report',
+  requireRole('HR_ADMIN'),
+  handler((req, res) => {
+    const report = repoOf(req).noticeReadReport(req.params.id!);
+    if (!report) {
+      res.status(404).json({ error: 'Not found' });
+      return;
+    }
+    res.json(report);
   }),
 );
 

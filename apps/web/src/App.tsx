@@ -1,11 +1,10 @@
 import { useEffect, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { NavLink, Route, Routes, useLocation } from 'react-router-dom';
-import { get, post, type PlanFeatureKey, type Role, type SubscriptionDto } from './api';
+import { post, type PlanFeatureKey, type Role, type SubscriptionDto } from './api';
 import { signedOut, type RootState } from './store';
 import { fetchSubscription, TIER_LABEL, trialDaysLeft } from './subscription';
 import { ToastProvider, useToast } from './components/Toast';
-import { EmptyState, TableSkeleton } from './components/Feedback';
 import { CommandPalette } from './components/CommandPalette';
 import { NotificationBell } from './components/NotificationBell';
 import { Login } from './pages/Login';
@@ -17,46 +16,12 @@ import { Leave } from './pages/Leave';
 import { Payslips } from './pages/Payslips';
 import { AtRisk } from './pages/AtRisk';
 import { Plan } from './pages/Plan';
+import { OKR } from './pages/OKR';
+import { Recruitment } from './pages/Recruitment';
+import { CareersList, CareersApply } from './pages/Careers';
+import { Notices } from './pages/Notices';
 
 const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
-
-interface Notice {
-  id: string;
-  title: string;
-  body: string;
-  published_at: string;
-}
-
-function Noticeboard() {
-  const [notices, setNotices] = useState<Notice[] | null>(null);
-  useEffect(() => {
-    get<Notice[]>('/notices')
-      .then(setNotices)
-      .catch(() => setNotices([]));
-  }, []);
-
-  return (
-    <>
-      <h1>Noticeboard</h1>
-      <p className="page-sub">Central, auditable internal communication.</p>
-      {notices === null && <TableSkeleton rows={3} cols={1} />}
-      {notices?.map((n, i) => (
-        <div className="card content-in" key={n.id} style={{ animationDelay: `${Math.min(i, 3) * 30}ms` }}>
-          <strong>{n.title}</strong>
-          <div className="stat-note">{new Date(n.published_at).toLocaleString()}</div>
-          <p style={{ marginBottom: 0 }}>{n.body}</p>
-        </div>
-      ))}
-      {notices?.length === 0 && (
-        <EmptyState
-          icon="📋"
-          title="No notices yet"
-          body="Company announcements posted by HR will appear here, newest first."
-        />
-      )}
-    </>
-  );
-}
 
 /* ------------------------------- theme ---------------------------------- */
 
@@ -238,39 +203,14 @@ function Shell() {
           <Route path="/attendance" element={<Attendance role={role} />} />
           <Route path="/leave" element={<Leave role={role} />} />
           <Route path="/payslips" element={<Payslips role={role} />} />
-          <Route path="/notices" element={<Noticeboard />} />
+          <Route path="/notices" element={<Notices role={role} />} />
           <Route path="/at-risk/:id" element={<AtRisk />} />
           <Route path="/plan" element={<Plan />} />
-          <Route
-            path="/okr"
-            element={
-              <ComingSoon
-                title="Performance (OKR)"
-                body="Quarterly objectives and key results. Feature 6 — scheduled for Increment 3."
-              />
-            }
-          />
-          <Route
-            path="/ats"
-            element={
-              <ComingSoon
-                title="Recruitment (ATS)"
-                body="Kanban hiring pipeline from application to offer. Feature 7 — scheduled for Increment 3."
-              />
-            }
-          />
+          <Route path="/okr" element={<OKR role={role} />} />
+          <Route path="/ats" element={<Recruitment role={role} />} />
         </Routes>
       </main>
     </div>
-  );
-}
-
-function ComingSoon({ title, body }: { title: string; body: string }) {
-  return (
-    <>
-      <h1>{title}</h1>
-      <EmptyState icon="🚧" title="Not built yet" body={body} />
-    </>
   );
 }
 
@@ -284,6 +224,22 @@ export function App() {
     return (
       <ToastProvider>
         <ResetPassword />
+      </ToastProvider>
+    );
+  }
+
+  // F7.1/F7.2 · US-34/US-35 — the public careers pages, reachable with no login, checked
+  // before the auth gate the same way /reset-password is above. A real <Routes> block (not
+  // just a manual pathname check) so CareersList/CareersApply get real route params from
+  // useParams() -- rendering them directly without a matching <Route> would leave orgId and
+  // vacancyId undefined.
+  if (location.pathname.startsWith('/careers/')) {
+    return (
+      <ToastProvider>
+        <Routes>
+          <Route path="/careers/:orgId" element={<CareersList />} />
+          <Route path="/careers/:orgId/:vacancyId" element={<CareersApply />} />
+        </Routes>
       </ToastProvider>
     );
   }

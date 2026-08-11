@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { formatBDT } from '@pulsehr/core';
-import { get, post, type PayslipDto, type PayslipLineDto } from '../api';
+import { get, post, tokens, type PayslipDto, type PayslipLineDto } from '../api';
 
 const MONTHS = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -69,6 +69,31 @@ export function Payslips({ role }: { role: string }) {
     }
   }
 
+  // F5.3 / US-27 — a real generated PDF from the server, not a browser print of the page.
+  // A plain <a href> can't carry the Bearer token, so this fetches the PDF and downloads it
+  // via a blob URL instead.
+  const [downloading, setDownloading] = useState(false);
+  async function downloadPdf(id: string, year: number, month: number) {
+    setDownloading(true);
+    try {
+      const API_BASE = import.meta.env.VITE_API_BASE ?? '/api';
+      const res = await fetch(`${API_BASE}/payroll/payslips/${id}/pdf`, {
+        headers: { Authorization: `Bearer ${tokens.access}` },
+      });
+      if (!res.ok) throw new Error(`Could not generate the PDF (${res.status})`);
+      const url = URL.createObjectURL(await res.blob());
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `payslip-${year}-${String(month).padStart(2, '0')}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setDownloading(false);
+    }
+  }
+
   if (open) {
     const p = open.payslip;
     return (
@@ -77,8 +102,15 @@ export function Payslips({ role }: { role: string }) {
           <button className="sm" onClick={() => setOpen(null)}>
             ← Back
           </button>{' '}
-          <button className="sm primary" onClick={() => window.print()}>
-            Print / Save as PDF
+          <button
+            className="sm primary"
+            onClick={() => downloadPdf(p.id, p.period_year, p.period_month)}
+            disabled={downloading}
+          >
+            {downloading ? 'Preparing…' : 'Download PDF'}
+          </button>{' '}
+          <button className="sm" onClick={() => window.print()}>
+            Print
           </button>
         </p>
 

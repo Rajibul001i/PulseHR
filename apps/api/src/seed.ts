@@ -362,9 +362,11 @@ const db = getDb();
 // Idempotent: wipe and re-seed so the demo is reproducible. Order matters -- a table must
 // be cleared before anything it references (FK enforcement is on, db.ts:26).
 for (const table of [
+  'key_result', 'candidate_stage_event', 'candidate_evaluation', 'notice_department', 'notice_read',
   'attrition_contribution', 'attrition_score', 'payslip_line', 'payslip', 'leave_ledger',
   'leave_request', 'attendance', 'salary_structure', 'notice', 'audit_log', 'holiday',
   'notification', 'password_reset_token', 'employee_document', // added with migrations 004-007
+  'objective', 'review_score', 'candidate', 'vacancy', // added with migrations 008-009
   'session', 'employee', 'app_user', 'department',
   'subscription_event', 'feature_gate_hit', 'organisation',
 ]) {
