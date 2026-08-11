@@ -359,10 +359,12 @@ function countWorkingDaysApprox(from: string, to: string): number {
 openDb();
 const db = getDb();
 
-// Idempotent: wipe and re-seed so the demo is reproducible.
+// Idempotent: wipe and re-seed so the demo is reproducible. Order matters -- a table must
+// be cleared before anything it references (FK enforcement is on, db.ts:26).
 for (const table of [
   'attrition_contribution', 'attrition_score', 'payslip_line', 'payslip', 'leave_ledger',
   'leave_request', 'attendance', 'salary_structure', 'notice', 'audit_log', 'holiday',
+  'notification', 'password_reset_token', 'employee_document', // added with migrations 004-007
   'session', 'employee', 'app_user', 'department',
   'subscription_event', 'feature_gate_hit', 'organisation',
 ]) {

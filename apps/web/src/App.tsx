@@ -7,9 +7,11 @@ import { fetchSubscription, TIER_LABEL, trialDaysLeft } from './subscription';
 import { ToastProvider, useToast } from './components/Toast';
 import { EmptyState, TableSkeleton } from './components/Feedback';
 import { CommandPalette } from './components/CommandPalette';
+import { NotificationBell } from './components/NotificationBell';
 import { Login } from './pages/Login';
 import { ResetPassword } from './pages/ResetPassword';
 import { Dashboard } from './pages/Dashboard';
+import { Profile } from './pages/Profile';
 import { Attendance } from './pages/Attendance';
 import { Leave } from './pages/Leave';
 import { Payslips } from './pages/Payslips';
@@ -89,6 +91,7 @@ interface NavItem {
 
 const NAV: NavItem[] = [
   { to: '/', label: 'Dashboard' },
+  { to: '/profile', label: 'My profile' },
   { to: '/attendance', label: 'Attendance', feature: 'attendance' },
   { to: '/leave', label: 'Leave', feature: 'leave' },
   { to: '/payslips', label: 'Payslips', feature: 'payroll' },
@@ -154,10 +157,13 @@ function Shell() {
         </div>
         <div className="brand-sub">Predictive HRIS</div>
 
-        <button className="cmdk-trigger no-print" onClick={() => setPaletteOpen(true)}>
-          <span>Jump to…</span>
-          <kbd>{isMac ? '⌘K' : 'Ctrl K'}</kbd>
-        </button>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+          <button className="cmdk-trigger no-print" style={{ marginBottom: 0, flex: 1 }} onClick={() => setPaletteOpen(true)}>
+            <span>Jump to…</span>
+            <kbd>{isMac ? '⌘K' : 'Ctrl K'}</kbd>
+          </button>
+          <NotificationBell />
+        </div>
 
         {sub && (
           <div className="plan-chip">
@@ -228,6 +234,7 @@ function Shell() {
       <main className="main">
         <Routes>
           <Route path="/" element={<Dashboard role={role} subscription={sub} />} />
+          <Route path="/profile" element={<Profile role={role} />} />
           <Route path="/attendance" element={<Attendance role={role} />} />
           <Route path="/leave" element={<Leave role={role} />} />
           <Route path="/payslips" element={<Payslips role={role} />} />

@@ -8,6 +8,55 @@ as a changelog.
 
 ## Session 3 — 11 August 2026
 
+### 11. Closed Increment 2 — F2.2 contact update, F2.5 documents, F4.4 notifications
+
+Continuing the same incremental discipline from #10: Increment 2 had three open gaps
+(F2.2, F2.5, F4.4). All three are built, tested, and verified through the real UI.
+
+**F2.2 — self-service contact update.** `POST /api/me/contact` lets an employee update
+their own phone/address/emergency contact; designation, department and employee code stay
+server-authoritative regardless of what the request body contains. HR sees the change with
+no approval step, per US-09.
+
+**F2.5 — employee documents.** HR can attach documents (PDF/JPEG/PNG, 5 MB cap, both
+enforced server-side) to an employee's profile; the employee and HR can view them, no one
+else can. Files travel as base64 inside the existing JSON API rather than adding multipart
+upload handling for one feature. New migration `006_employee_documents.sql`
+(`employee_document`, BLOB storage — the SQLite file is already ephemeral on the free-tier
+host, so a separate object store would add complexity without adding durability).
+
+**F4.4 — in-app leave notifications.** A manager is notified when a direct report submits
+leave; the employee is notified when it's decided, carrying the reason. Building this
+surfaced a real gap in US-19's enforcement that nothing had caught before: nothing stopped a
+rejection from being submitted with no reason. Fixed alongside F4.4 — `REJECT` now requires
+a non-empty `reason` (`400` without one).
+
+**A genuine UI bug found during verification, not by the API-level suite.** The
+notification panel used a full-screen transparent overlay to detect clicks outside it and
+close itself. That overlay sat above the sidebar (which has no stacking context of its own
+at desktop width) and silently blocked the first click on anything else on the page while
+the panel was open — including Sign out. Caught because the verification pass was a real
+Playwright run that continued past reading the notification into signing out, not just an
+API call. Fixed by replacing the overlay with a `document.addEventListener('mousedown', …)`
+click-outside handler scoped to the panel itself. Full writeup in
+`docs/13-sqa-defect-report.md` §10 (recorded as BUG-21) — this class of bug is invisible to
+`bughunt.mjs` by construction, since there's no failing HTTP request; it only exists in the
+DOM, which is exactly why this project keeps a real-browser verification step for anything
+UI-facing.
+
+**Verified:** new `bughunt.mjs` checks BUG-05 (F2.2, 3 assertions), BUG-19 (F2.5, 5
+assertions), BUG-20 (F4.4 + the US-19 reason gap, includes the notification-clears-on-read
+check). Full regression on a clean reseed + freshly-restarted server: 102 unit tests, 20
+smoke checks, 30 bughunt checks (27 pass, 3 are Increment-3 stubs not yet built), typecheck
+and build both clean. Real-account Playwright pass: Arif submits leave → manager Shabnam is
+notified → clicks through to `/leave` → rejecting with no reason is blocked by the UI →
+rejecting with one clears her notification and lands on Arif's, quoting the reason → she can
+then sign out cleanly (confirming the BUG-21 fix holds).
+
+**Increment 2 is now closed** — F2 and F4 both sit at 5/5. Total function coverage is now
+31/43 (72%). Moving to Increment 3 next: F5.3 real PDF payslips, F6 OKR, F7 ATS, F8.2/F8.3
+noticeboard priority + read tracking — in order, same discipline.
+
 ### 10. Closed Increment 1 — F1.4 password reset (US-05)
 
 You asked me to actually follow the Incremental Model rather than just work off whatever
@@ -473,7 +522,7 @@ exactly the base rate.
 | 1 | ~~Implement F1.4 password reset~~ — **done 11 Aug, Increment 1 closed** | ~~High~~ |
 | 2 | ~~UI Phase 1 — subscription-aware shell, upgrade prompts, seat meter~~ — **done (session 2)** | ~~High~~ |
 | 3 | Settle F6.3/F9.1 — do review scores feed the risk model? (SQA recommends no) | **High** |
-| 4 | F2.2 employee self-service contact update | Medium |
+| 4 | ~~F2.2 contact update, F2.5 documents, F4.4 notifications~~ — **done 12 Aug, Increment 2 closed** | ~~Medium~~ |
 | 5 | F6 OKR, F7 ATS, F8.2/F8.3 noticeboard — Increment 3 scope | Medium |
 | 6 | UI Phases 2–4 — toasts, skeletons, empty states, responsive, a11y | Medium |
 | 7 | Real PDF payslips (F5.3 — currently print-to-PDF) | Medium |

@@ -163,14 +163,83 @@ console.log('F1 · Authentication & Role Management');
 /* ---------------------------------------------------------------------- */
 console.log('\nF2 · Employee Information');
 
-// US-09: employee updates their own contact details
+// US-09: employee updates their own contact details. Acceptance criteria: phone/address/
+// emergency contact are editable; salary, designation, department are read-only on this
+// screen; visible to HR without a further approval step.
 {
+  const before = (await call('/me', { token: emp.accessToken })).body.employee;
   const r = await call('/me/contact', {
     method: 'POST',
     token: emp.accessToken,
-    body: { phone: '01700000000' },
+    body: { phone: '01711111111', address: 'House 12, Road 5, Dhaka', emergencyContact: 'Mother, 01799999999' },
   });
-  expect('BUG-05', 'US-09', 'Employee can update own contact details (F2.2)', r.status !== 404, `got ${r.status}`);
+  expect('BUG-05', 'US-09', 'Employee can update own contact details (F2.2)', r.status === 200, `got ${r.status}`);
+  expect(
+    'BUG-05',
+    'US-09',
+    'Designation and department are unchanged by a contact update (read-only enforced server-side)',
+    r.body?.designation === before?.designation && r.body?.department_id === before?.department_id,
+    'a contact-only update changed employment data',
+  );
+
+  // No approval step -- HR's own view of the same employee shows it immediately.
+  const hrView = await call(`/employees/${before.id}`, { token: hrA.accessToken });
+  expect(
+    'BUG-05',
+    'US-09',
+    'HR sees the updated contact details immediately, no approval step',
+    hrView.body?.phone === '01711111111',
+    `HR view shows phone=${hrView.body?.phone}`,
+  );
+}
+
+// US-12 (F2.5): HR attaches a document; the employee and HR can see it, a disallowed type
+// is refused, and it carries type/date/uploader.
+{
+  const meRow = (await call('/me', { token: emp.accessToken })).body.employee;
+  const tinyPdfBase64 = Buffer.from('%PDF-1.4 not a real pdf, just bytes for the test').toString('base64');
+
+  const upload = await call(`/employees/${meRow.id}/documents`, {
+    method: 'POST',
+    token: hrA.accessToken,
+    body: { category: 'NID_COPY', filename: 'nid.pdf', mimeType: 'application/pdf', contentBase64: tinyPdfBase64 },
+  });
+  expect('BUG-19', 'US-12', 'HR can attach a document to an employee profile (F2.5)', upload.status === 201, `got ${upload.status}`);
+
+  const rejected = await call(`/employees/${meRow.id}/documents`, {
+    method: 'POST',
+    token: hrA.accessToken,
+    body: { category: 'OTHER', filename: 'malware.exe', mimeType: 'application/x-msdownload', contentBase64: 'AA==' },
+  });
+  expect('BUG-19', 'US-12', 'A disallowed file type is refused, not silently accepted', rejected.status === 415, `got ${rejected.status}`);
+
+  const asSelf = await call(`/employees/${meRow.id}/documents`, { token: emp.accessToken });
+  expect(
+    'BUG-19',
+    'US-12',
+    'The employee can see documents on their own profile',
+    asSelf.status === 200 && asSelf.body.some((d) => d.filename === 'nid.pdf'),
+    `got ${asSelf.status}, ${JSON.stringify(asSelf.body)}`,
+  );
+  const doc = asSelf.body.find((d) => d.filename === 'nid.pdf');
+  expect(
+    'BUG-19',
+    'US-12',
+    'Each document shows its type, upload date and uploader',
+    Boolean(doc?.category && doc?.created_at && doc?.uploaded_by_email),
+    JSON.stringify(doc),
+  );
+
+  // mgr is a MANAGER, not HR_ADMIN and not this employee -- exactly the "other employee"
+  // case the third acceptance criterion excludes, regardless of the org chart.
+  const asManager = await call(`/employees/${meRow.id}/documents`, { token: mgr.accessToken });
+  expect(
+    'BUG-19',
+    'US-12',
+    'Documents are visible to the employee and Administrators only -- not other roles',
+    asManager.status === 403,
+    `got ${asManager.status} for a non-HR, non-owner role`,
+  );
 }
 
 // US-11: employee search & filter
@@ -247,6 +316,67 @@ console.log('\nF4 · Leave');
   );
 }
 
+// F4.4 / US-21 + US-22: in-app leave notifications.
+{
+  const meRow = (await call('/me', { token: emp.accessToken })).body.employee;
+  const mgrIsHerManager = meRow.manager_id === mgr.user.employeeId;
+  const future = new Date(Date.now() + 10 * 86_400_000).toISOString().slice(0, 10);
+
+  const mgrBefore = mgrIsHerManager ? await call('/notifications', { token: mgr.accessToken }) : null;
+
+  const submitted = await call('/leave/requests', {
+    method: 'POST',
+    token: emp.accessToken,
+    body: { leaveType: 'CASUAL', startDate: future, endDate: future, reason: 'bughunt F4.4 check' },
+  });
+
+  if (mgrIsHerManager) {
+    const mgrAfter = await call('/notifications', { token: mgr.accessToken });
+    expect(
+      'BUG-20',
+      'US-22',
+      "Manager is notified when a request enters their queue",
+      (mgrAfter.body ?? []).length > (mgrBefore.body ?? []).length,
+      `notification count ${(mgrBefore.body ?? []).length} -> ${(mgrAfter.body ?? []).length}`,
+    );
+  }
+
+  const REJECTION_REASON = 'bughunt test rejection — not enough documentation attached';
+  const noReason = await call(`/leave/requests/${submitted.body.id}/decision`, {
+    method: 'POST',
+    token: hrA.accessToken,
+    body: { decision: 'REJECT' },
+  });
+  expect('BUG-20', 'US-19', 'A rejection cannot be submitted without a reason', noReason.status === 400, `got ${noReason.status}`);
+
+  await call(`/leave/requests/${submitted.body.id}/decision`, {
+    method: 'POST',
+    token: hrA.accessToken,
+    body: { decision: 'REJECT', reason: REJECTION_REASON },
+  });
+  const empNotifs = await call('/notifications', { token: emp.accessToken });
+  const decided = (empNotifs.body ?? []).find((n) => n.entity_id === submitted.body.id);
+  expect(
+    'BUG-20',
+    'US-21',
+    'Employee is notified on rejection, carrying the stated reason',
+    Boolean(decided?.message?.includes(REJECTION_REASON)),
+    JSON.stringify(decided),
+  );
+
+  if (mgrIsHerManager) {
+    const mgrFinal = await call('/notifications', { token: mgr.accessToken });
+    const stillPending = (mgrFinal.body ?? []).some((n) => n.entity_id === submitted.body.id && !n.read_at);
+    expect(
+      'BUG-20',
+      'US-22',
+      "The manager's notification clears once they (or HR) record a decision",
+      !stillPending,
+      'the pending notification for this request is still unread',
+    );
+  }
+}
+
 /* ---------------------------------------------------------------------- */
 console.log('\nF5 · Payroll');
 
@@ -268,8 +398,18 @@ console.log('\nF5 · Payroll');
   );
 }
 
-// The DB UNIQUE constraint on payslip should prevent a duplicate period.
+// The DB UNIQUE constraint on payslip should prevent a duplicate period. Self-contained --
+// runs the period twice in this same script execution rather than assuming an earlier
+// session already ran it, so a freshly-reseeded database doesn't produce a false BUG-12.
 {
+  const first = await call('/payroll/runs', {
+    method: 'POST',
+    token: hrA.accessToken,
+    body: { year: 2026, month: 7 },
+  });
+  await new Promise((r) => setTimeout(r, 1500));
+  await call(`/jobs/${first.body.jobId}`, { token: hrA.accessToken }); // let the first run finish
+
   const r1 = await call('/payroll/runs', {
     method: 'POST',
     token: hrA.accessToken,

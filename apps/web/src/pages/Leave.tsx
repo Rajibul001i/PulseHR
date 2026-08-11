@@ -49,6 +49,13 @@ export function Leave({ role }: { role: string }) {
   }
 
   async function decide(id: string, decision: 'APPROVE' | 'REJECT') {
+    // US-19: a rejection cannot be submitted without a reason.
+    let reason: string | undefined;
+    if (decision === 'REJECT') {
+      reason = window.prompt('Reason for rejecting this request (the employee will see this):') ?? '';
+      if (!reason.trim()) return; // cancelled, or submitted blank
+    }
+
     // Optimistic: the row updates immediately and rolls back if the server refuses.
     const snapshot = requests;
     setRequests(
@@ -60,7 +67,7 @@ export function Leave({ role }: { role: string }) {
     try {
       const res = await post<{ status: string; balanceAfter?: number }>(
         `/leave/requests/${id}/decision`,
-        { decision },
+        { decision, reason },
       );
       toast.success(
         res.balanceAfter === undefined

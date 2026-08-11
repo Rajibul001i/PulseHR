@@ -51,7 +51,11 @@ openDb();
 
 const app = express();
 app.use(cors());
-app.use(express.json());
+// Default 100kb is fine for every other route; F2.5 document uploads are base64 in the
+// JSON body (no multipart parser exists anywhere else in this API, so this keeps the whole
+// surface uniformly JSON rather than introducing a second request-parsing path for one
+// feature). Base64 adds ~33% overhead, so 8mb here backs the 5mb file limit enforced below.
+app.use(express.json({ limit: '8mb' }));
 
 const repoOf = (req: Request): Repo => {
   const p = req.principal!;
@@ -211,6 +215,95 @@ app.get(
   }),
 );
 
+// F2.5 / US-12. Upload is HR-only (the story is written from the Administrator's
+// perspective); viewing is HR-only OR the employee themselves -- "visible to the employee
+// and to Administrators, not to other employees" is the third acceptance criterion.
+const MAX_DOCUMENT_BYTES = 5 * 1024 * 1024;
+const ALLOWED_DOCUMENT_TYPES = new Set(['application/pdf', 'image/jpeg', 'image/png']);
+
+function canSeeEmployeeDocuments(req: Request, employeeId: string): boolean {
+  const p = req.principal!;
+  return p.role === 'HR_ADMIN' || p.employeeId === employeeId;
+}
+
+app.post(
+  '/api/employees/:id/documents',
+  requireRole('HR_ADMIN'),
+  handler((req, res) => {
+    const { category, filename, mimeType, contentBase64 } = z
+      .object({
+        category: z.enum(['APPOINTMENT_LETTER', 'NID_COPY', 'CERTIFICATE', 'OTHER']),
+        filename: z.string().min(1),
+        mimeType: z.string(),
+        contentBase64: z.string().min(1),
+      })
+      .parse(req.body);
+
+    if (!ALLOWED_DOCUMENT_TYPES.has(mimeType)) {
+      res.status(415).json({ error: `Unsupported file type: ${mimeType}. PDF, JPG and PNG only.` });
+      return;
+    }
+    const content = Buffer.from(contentBase64, 'base64');
+    if (content.byteLength > MAX_DOCUMENT_BYTES) {
+      res.status(413).json({ error: `File exceeds the ${MAX_DOCUMENT_BYTES / 1024 / 1024}MB limit.` });
+      return;
+    }
+    const repo = repoOf(req);
+    if (!repo.getEmployee(req.params.id!)) {
+      res.status(404).json({ error: 'Not found' });
+      return;
+    }
+    const id = repo.addEmployeeDocument({ employeeId: req.params.id!, category, filename, mimeType, content });
+    res.status(201).json({ id });
+  }),
+);
+
+app.get(
+  '/api/employees/:id/documents',
+  handler((req, res) => {
+    if (!canSeeEmployeeDocuments(req, req.params.id!)) {
+      res.status(403).json({ error: 'Not permitted' });
+      return;
+    }
+    res.json(repoOf(req).listEmployeeDocuments(req.params.id!));
+  }),
+);
+
+app.get(
+  '/api/employees/:id/documents/:docId',
+  handler((req, res) => {
+    if (!canSeeEmployeeDocuments(req, req.params.id!)) {
+      res.status(403).json({ error: 'Not permitted' });
+      return;
+    }
+    const doc = repoOf(req).getEmployeeDocument(req.params.docId!);
+    if (!doc || doc.employee_id !== req.params.id) {
+      res.status(404).json({ error: 'Not found' });
+      return;
+    }
+    res.setHeader('Content-Type', String(doc.mime_type));
+    res.setHeader('Content-Disposition', `inline; filename="${String(doc.filename).replace(/"/g, '')}"`);
+    res.send(doc.content);
+  }),
+);
+
+// F4.4 / US-21+US-22.
+app.get(
+  '/api/notifications',
+  handler((req, res) => {
+    res.json(repoOf(req).listNotifications(req.principal!.userId));
+  }),
+);
+
+app.post(
+  '/api/notifications/read',
+  handler((req, res) => {
+    const { ids } = z.object({ ids: z.array(z.string()).optional() }).parse(req.body ?? {});
+    repoOf(req).markNotificationsRead(req.principal!.userId, ids);
+    res.json({ ok: true });
+  }),
+);
+
 app.get(
   '/api/me',
   handler((req, res) => {
@@ -226,6 +319,31 @@ app.get(
       employee: emp,
       balances: repo.balances(p.employeeId),
     });
+  }),
+);
+
+// F2.2 / US-09. Salary, designation and department are deliberately not accepted here --
+// Repo.updateOwnContact() only ever touches phone/address/emergency_contact, so there is no
+// request-body path to those fields at all, not just a validation check that could be
+// bypassed.
+app.post(
+  '/api/me/contact',
+  handler((req, res) => {
+    const p = req.principal!;
+    if (!p.employeeId) {
+      res.status(400).json({ error: 'No employee record linked to this user' });
+      return;
+    }
+    const fields = z
+      .object({
+        phone: z.string().min(1).optional(),
+        address: z.string().min(1).optional(),
+        emergencyContact: z.string().min(1).optional(),
+      })
+      .parse(req.body);
+
+    repoOf(req).updateOwnContact(p.employeeId, fields);
+    res.json(repoOf(req).getEmployee(p.employeeId));
   }),
 );
 
@@ -417,6 +535,20 @@ app.post(
       reason: body.reason,
     });
     repo.audit('LEAVE_REQUESTED', 'leave_request', id, body);
+
+    // F4.4 / US-22: "notified when a request enters my queue." Only the direct manager --
+    // the story is written from the Manager's perspective, not "every HR admin too."
+    const managerUserId = repo.managerUserIdFor(p.employeeId);
+    if (managerUserId) {
+      repo.notify(
+        managerUserId,
+        'LEAVE_PENDING',
+        `A ${body.leaveType.toLowerCase()} leave request (${days} day${days === 1 ? '' : 's'}) is waiting for your decision.`,
+        'leave_request',
+        id,
+      );
+    }
+
     res.status(201).json({ id, days });
   }),
 );
@@ -434,17 +566,45 @@ app.post(
   '/api/leave/requests/:id/decision',
   requireRole('MANAGER', 'HR_ADMIN'),
   handler((req, res) => {
-    const { decision } = z.object({ decision: z.enum(['APPROVE', 'REJECT']) }).parse(req.body);
+    const { decision, reason } = z
+      .object({ decision: z.enum(['APPROVE', 'REJECT']), reason: z.string().optional() })
+      .parse(req.body);
     const repo = repoOf(req);
     const requestId = req.params.id!;
+
+    // US-19 (F4.2): "a rejection cannot be submitted without a reason." Enforced here, not
+    // just in the UI -- a client-side-only check is not a check.
+    if (decision === 'REJECT' && !reason?.trim()) {
+      res.status(400).json({ error: 'A reason is required to reject a leave request.' });
+      return;
+    }
+
+    // F4.4 / US-21+US-22: notify the employee of the outcome, and clear the manager's
+    // "waiting for you" notification for this request -- both decisions close it out.
+    function notifyDecision(request: { employeeId: string; leaveType: string }, status: 'APPROVED' | 'REJECTED') {
+      repo.clearPendingNotificationsFor('leave_request', requestId);
+      const employeeUserId = repo.getEmployee(request.employeeId)?.user_id;
+      if (employeeUserId) {
+        const verb = status === 'APPROVED' ? 'approved' : 'rejected';
+        const reasonSuffix = status === 'REJECTED' && reason ? ` Reason: ${reason}` : '';
+        repo.notify(
+          String(employeeUserId),
+          'LEAVE_DECIDED',
+          `Your ${request.leaveType.toLowerCase()} leave request was ${verb}.${reasonSuffix}`,
+          'leave_request',
+          requestId,
+        );
+      }
+    }
 
     const result = transaction(() => {
       const request = repo.getLeaveRequest(requestId);
       if (!request) return { status: 404 as const, body: { error: 'Not found' } };
 
       if (decision === 'REJECT') {
-        repo.setLeaveStatus(requestId, 'REJECTED', req.principal!.userId);
-        repo.audit('LEAVE_REJECTED', 'leave_request', requestId);
+        repo.setLeaveStatus(requestId, 'REJECTED', req.principal!.userId, reason);
+        repo.audit('LEAVE_REJECTED', 'leave_request', requestId, { reason });
+        notifyDecision(request, 'REJECTED');
         return { status: 200 as const, body: { status: 'REJECTED' } };
       }
 
@@ -475,6 +635,7 @@ app.post(
         balanceBefore: check.balanceBefore,
         balanceAfter: check.balanceAfter,
       });
+      notifyDecision(request, 'APPROVED');
       return {
         status: 200 as const,
         body: { status: 'APPROVED', balanceAfter: check.balanceAfter },

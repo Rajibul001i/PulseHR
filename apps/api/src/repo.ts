@@ -88,6 +88,81 @@ export class Repo {
     );
   }
 
+  /**
+   * F2.2 / US-09 — employee self-service. Deliberately narrow: only these three columns,
+   * enforced here rather than trusted to the caller, so this method can never become a
+   * back door for editing salary or designation regardless of what a future caller passes.
+   */
+  updateOwnContact(employeeId: string, fields: { phone?: string; address?: string; emergencyContact?: string }): void {
+    run(
+      `UPDATE employee
+          SET phone = COALESCE(?, phone),
+              address = COALESCE(?, address),
+              emergency_contact = COALESCE(?, emergency_contact)
+        WHERE id = ? AND organisation_id = ?`,
+      fields.phone ?? null,
+      fields.address ?? null,
+      fields.emergencyContact ?? null,
+      employeeId,
+      this.orgId,
+    );
+    // Visible to HR without a further approval step (US-09's third acceptance criterion) --
+    // this IS that visibility: it's on the same employee record HR's own screens read.
+    this.audit('UPDATE_OWN_CONTACT', 'employee', employeeId, fields);
+  }
+
+  /* --------------------------- documents (F2.5) --------------------------- */
+
+  addEmployeeDocument(params: {
+    employeeId: string;
+    category: string;
+    filename: string;
+    mimeType: string;
+    content: Buffer;
+  }): string {
+    const id = uuid();
+    run(
+      `INSERT INTO employee_document
+         (id, organisation_id, employee_id, category, filename, mime_type, size_bytes, content, uploaded_by, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      id,
+      this.orgId,
+      params.employeeId,
+      params.category,
+      params.filename,
+      params.mimeType,
+      params.content.byteLength,
+      params.content,
+      this.actorUserId,
+      nowIso(),
+    );
+    this.audit('UPLOAD_DOCUMENT', 'employee_document', id, { employeeId: params.employeeId, category: params.filename });
+    return id;
+  }
+
+  /** Metadata only -- never the BLOB. US-12: "shows its type, upload date, and who uploaded it." */
+  listEmployeeDocuments(employeeId: string): Row[] {
+    return all(
+      `SELECT d.id, d.category, d.filename, d.mime_type, d.size_bytes, d.created_at,
+              u.email AS uploaded_by_email
+         FROM employee_document d
+         JOIN app_user u ON u.id = d.uploaded_by
+        WHERE d.employee_id = ? AND d.organisation_id = ?
+        ORDER BY d.created_at DESC`,
+      employeeId,
+      this.orgId,
+    );
+  }
+
+  /** Includes the BLOB -- only call this for an actual download, not a list view. */
+  getEmployeeDocument(documentId: string): Row | undefined {
+    return one(
+      `SELECT * FROM employee_document WHERE id = ? AND organisation_id = ?`,
+      documentId,
+      this.orgId,
+    );
+  }
+
   /** BUG-07 — office start is per-department (Department.officeStartTime), not a global 09:00. */
   officeStartMinutesFor(employeeId: string): number {
     const row = one(
@@ -352,15 +427,86 @@ export class Repo {
     return id;
   }
 
-  setLeaveStatus(id: string, status: string, decidedBy: string): void {
+  setLeaveStatus(id: string, status: string, decidedBy: string, decisionReason?: string): void {
     run(
-      `UPDATE leave_request SET status = ?, decided_by = ?, decided_at = ?
+      `UPDATE leave_request SET status = ?, decided_by = ?, decided_at = ?, decision_reason = COALESCE(?, decision_reason)
         WHERE id = ? AND organisation_id = ?`,
       status,
       decidedBy,
       nowIso(),
+      decisionReason ?? null,
       id,
       this.orgId,
+    );
+  }
+
+  /** Resolves an employee's manager's login, if they have a manager with an app_user account. */
+  managerUserIdFor(employeeId: string): string | undefined {
+    const row = one(
+      `SELECT m.user_id FROM employee e JOIN employee m ON m.id = e.manager_id
+        WHERE e.id = ? AND e.organisation_id = ?`,
+      employeeId,
+      this.orgId,
+    );
+    return row?.user_id ? String(row.user_id) : undefined;
+  }
+
+  /* --------------------------- notifications (F4.4) ------------------------ */
+
+  notify(userId: string, type: 'LEAVE_PENDING' | 'LEAVE_DECIDED', message: string, entityType?: string, entityId?: string): void {
+    run(
+      `INSERT INTO notification (id, organisation_id, user_id, type, message, entity_type, entity_id, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      uuid(),
+      this.orgId,
+      userId,
+      type,
+      message,
+      entityType ?? null,
+      entityId ?? null,
+      nowIso(),
+    );
+  }
+
+  listNotifications(userId: string): Row[] {
+    return all(
+      'SELECT * FROM notification WHERE user_id = ? AND organisation_id = ? ORDER BY created_at DESC LIMIT 30',
+      userId,
+      this.orgId,
+    );
+  }
+
+  markNotificationsRead(userId: string, ids?: string[]): void {
+    if (ids && ids.length > 0) {
+      const placeholders = ids.map(() => '?').join(',');
+      run(
+        `UPDATE notification SET read_at = ?
+          WHERE user_id = ? AND organisation_id = ? AND id IN (${placeholders})`,
+        nowIso(),
+        userId,
+        this.orgId,
+        ...ids,
+      );
+    } else {
+      run(
+        `UPDATE notification SET read_at = ?
+          WHERE user_id = ? AND organisation_id = ? AND read_at IS NULL`,
+        nowIso(),
+        userId,
+        this.orgId,
+      );
+    }
+  }
+
+  /** US-22's third criterion: "the notification clears once the manager records a decision." */
+  clearPendingNotificationsFor(entityType: string, entityId: string): void {
+    run(
+      `UPDATE notification SET read_at = ?
+        WHERE organisation_id = ? AND entity_type = ? AND entity_id = ? AND read_at IS NULL`,
+      nowIso(),
+      this.orgId,
+      entityType,
+      entityId,
     );
   }
 

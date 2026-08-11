@@ -152,7 +152,6 @@ features as defects inflates the count and hides the real ones.
 
 | ID | Function | Increment | Status |
 |---|---|---|---|
-| BUG-05 | F2.2 Employee self-service contact update (US-09) | 2 | Not built |
 | BUG-13 | F6 OKR Performance | 3 | Not built |
 | BUG-14 | F7 Recruitment ATS | 3 | Not built |
 | BUG-15 | F8.3 Notice read tracking | 3 | Not built |
@@ -163,6 +162,9 @@ that increment not yet delivered, and under the Incremental Model an increment i
 until every function in it is — this is worth recording precisely because it stayed
 un-closed for two sessions before anyone acted on the earlier flag.
 
+**F2.2, F2.5 and F4.4 are fixed as of 12 August 2026 — see §10.** Increment 2 is now closed:
+every function in F2 and F4 passes its acceptance criteria.
+
 ---
 
 ## 5. Function coverage — F1–F9
@@ -170,15 +172,15 @@ un-closed for two sessions before anyone acted on the earlier flag.
 | Feature | Functions | Implemented | Tested | Notes |
 |---|---|---|---|---|
 | F1 Authentication | 5 | **5 / 5** | ✅ | Closed 11 Aug — F1.4 password reset shipped |
-| F2 Employee Info | 5 | 3 / 5 | ✅ | F2.2 self-service, F2.5 documents missing |
+| F2 Employee Info | 5 | **5 / 5** | ✅ | Closed 12 Aug — F2.2 self-service, F2.5 documents shipped |
 | F3 Attendance | 5 | 5 / 5 | ✅ | |
-| F4 Leave | 5 | 4 / 5 | ✅ | F4.4 in-app notifications missing |
+| F4 Leave | 5 | **5 / 5** | ✅ | Closed 12 Aug — F4.4 in-app notifications shipped |
 | F5 Payroll | 5 | 4 / 5 | ✅ | F5.3 PDF is print-to-PDF, not generated |
 | F6 Performance (OKR) | 4 | 0 / 4 | — | Increment 3 |
 | F7 Recruitment (ATS) | 5 | 0 / 5 | — | Increment 3 |
 | F8 Noticeboard | 4 | 2 / 4 | ✅ | F8.2 priority, F8.3 read tracking missing |
 | F9 Attrition Risk | 5 | 5 / 5 | ✅ | |
-| **Total** | **43** | **28 / 43 (65%)** | | |
+| **Total** | **43** | **31 / 43 (72%)** | | |
 
 ---
 
@@ -231,9 +233,12 @@ Every fixed defect now has a permanent test, so none can silently return:
 | Suite | Count | Status |
 |---|---|---|
 | Unit (`packages/core`) | **102** | ✅ all passing |
-| Integration smoke | 30 | ✅ all passing |
-| Adversarial bug hunt | 17 | 11 pass, 5 unbuilt features, 1 settled |
+| Integration smoke | 20 | ✅ all passing |
+| Adversarial bug hunt | 30 | 27 pass, 3 unbuilt features (Increment 3) |
 | Payslip uniqueness | 1 | ✅ constraint verified at DB level |
+
+(Both suites have grown since §2's original count as more user stories gained black-box
+checks — see §10 for the checks added this pass.)
 
 ---
 
@@ -319,3 +324,90 @@ this to a real provider (Resend, SES) and remove the field from the response ent
 **Recommendation for the team:** add an integration check that hits `POST /payroll/runs` (or
 `/attrition/runs`) and asserts `state: "DONE"` within N seconds — not just that the job
 *enqueues*. That's the gap that let this ship silently broken for a full session.
+
+---
+
+## 10. Addendum — 12 August 2026 — Increment 2 closed
+
+Per ADR-001, Increment 2 is not done until every function it contains passes its acceptance
+criteria. Three were open at the start of this pass: **F2.2** (self-service contact update,
+US-09), **F2.5** (HR-managed employee documents, US-12), and **F4.4** (in-app leave
+notifications, US-21/US-22). All three now ship.
+
+### F2.2 — Employee self-service contact update
+
+`POST /api/me/contact` accepts only `phone` / `address` / `emergencyContact`; designation,
+department and employee code stay server-authoritative — an employee cannot promote or
+relocate themselves by editing their own profile. HR sees the change immediately, no approval
+step, matching US-09's stated flow.
+
+- **Verified:** `bughunt.mjs` BUG-05 (3 assertions: update succeeds, read-only fields are
+  unchanged, HR sees it immediately) and a real UI pass (Playwright).
+
+### F2.5 — Employee documents
+
+`POST/GET /api/employees/:id/documents` (HR-only upload, self-or-HR read). Files travel as
+base64 inside the existing JSON API rather than adding multipart handling for one feature;
+`ALLOWED_DOCUMENT_TYPES` (PDF/JPEG/PNG) and a 5 MB cap are enforced server-side, not just in
+the file picker. Storage is a BLOB column on `employee_document` — a deliberate choice, since
+the SQLite file itself is already ephemeral on the free-tier host, so a separate object-store
+integration would add complexity without adding durability.
+
+- **Verified:** `bughunt.mjs` BUG-19 (5 assertions: upload, type rejection, self-visibility,
+  metadata completeness — type/date/uploader, and denial to a non-HR non-owner role).
+
+### F4.4 — In-app leave notifications
+
+`GET /api/notifications`, `POST /api/notifications/read`. A manager is notified when a direct
+report submits leave; the employee is notified when their manager decides it, carrying the
+stated reason. Building this surfaced a genuine gap in the existing acceptance criteria for
+US-19 that nothing had caught: **nothing stopped a rejection from being submitted with no
+reason**, even though the story requires the employee to see why. Fixed alongside F4.4 by
+making `reason` mandatory on `REJECT` decisions (`400` without it) — not a new feature, a
+missing enforcement of an existing one.
+
+- **Verified:** `bughunt.mjs` BUG-20 (rejection without a reason is refused; the employee's
+  notification carries the stated reason) and a full real-account Playwright run: Arif submits
+  leave → his manager Shabnam gets a badge and a panel entry → clicking it opens `/leave` →
+  rejecting without a reason is blocked by the UI → rejecting with one clears Shabnam's
+  notification and Arif receives a decision notification quoting it.
+
+### BUG-21 — Severity: Medium · UI defect found during F4.4 verification
+
+> **The notification panel's click-outside-to-close overlay blocked clicks on unrelated page
+> elements, including Sign out.**
+
+`NotificationBell` used a full-screen `position: fixed; inset: 0` transparent "scrim" div to
+detect an outside click and close the panel — a common pattern, but it assumes the element
+underneath participates in the same stacking context. The app's sidebar does not: at desktop
+width it has no `position`/`z-index` of its own, so the scrim (`z-index: 90`) sat above it and
+silently swallowed the first click on anything else on the page while the panel was open,
+including the Sign-out button.
+
+- **Detected:** not by `bughunt.mjs` (API-level checks can't see this — there's no HTTP
+  request that fails). Found by the real-account Playwright pass above, which continued
+  past reading the notification into signing out, and the sign-out click never registered.
+- **Fix:** replaced the scrim div with a `document.addEventListener('mousedown', …)`
+  click-outside handler scoped to the panel's wrapper ref. The outside click now reaches its
+  real target instead of being intercepted first.
+- **Re-verified:** the same Playwright script, re-run end to end, now signs out cleanly after
+  interacting with the notification panel.
+- **Lesson recorded:** this class of bug is invisible to API-level adversarial testing by
+  construction — it only exists in the DOM. It is the reason this project keeps a real
+  browser-driven verification pass as a required step for any UI-facing function, not just
+  the HTTP contract.
+
+### Updated function coverage (§5) and not-yet-implemented list (§4)
+
+F2 and F4 both moved from partial to 5/5. Total function coverage: **31 / 43 (72%)**.
+Increments 1 and 2 are now both fully closed under ADR-001; Increment 3 (F5.3 real PDF
+generation, F6 OKR, F7 ATS, F8.2/F8.3) is the only remaining open scope.
+
+### Updated regression protection (§7)
+
+| Defect | Permanent test |
+|---|---|
+| — (F2.2) | `bughunt.mjs` BUG-05 — self-update, read-only enforcement, HR visibility |
+| — (F2.5) | `bughunt.mjs` BUG-19 — upload, type rejection, visibility, metadata, access denial |
+| — (F4.4 / US-19 reason gap) | `bughunt.mjs` BUG-20 — reason-required rejection, decision notification |
+| BUG-21 | Playwright end-to-end script (`verify-notif-real-manager.mjs`) exercises the full notification → sign-out path |
