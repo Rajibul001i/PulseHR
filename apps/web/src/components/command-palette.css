@@ -1,0 +1,96 @@
+/*
+ * Command palette. Opens/closes with no transition, and the selected-row highlight has no
+ * transition either — both are keyboard-driven, used many times a day, and the frequency
+ * rule used throughout this project's motion work is unambiguous: that tier gets no
+ * animation, full stop (see styles.css's own button/nav conventions, and PICKER.md's
+ * "flipping is a 100+/session action" reasoning for the /prototype skill).
+ */
+
+.cmdk-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: center;
+  padding-top: 14vh;
+}
+
+.cmdk-panel {
+  width: 100%;
+  max-width: 560px;
+  max-height: 60vh;
+  height: fit-content;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.cmdk-panel [cmdk-input] {
+  font: inherit;
+  font-size: 15px;
+  padding: 14px 16px;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  outline: none;
+  flex-shrink: 0;
+}
+.cmdk-panel [cmdk-input]::placeholder {
+  color: var(--muted);
+}
+
+.cmdk-panel [cmdk-list] {
+  overflow-y: auto;
+  padding: 6px;
+}
+
+.cmdk-panel [cmdk-empty] {
+  padding: 20px 14px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.cmdk-panel [cmdk-group-heading] {
+  padding: 8px 10px 4px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.cmdk-panel [cmdk-item] {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 10px;
+  border-radius: 8px;
+  font-size: 14px;
+  color: var(--text);
+  cursor: pointer;
+}
+.cmdk-panel [cmdk-item][data-selected='true'] {
+  background: var(--surface-2);
+}
+.cmdk-panel [cmdk-item][aria-disabled='true'] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.cmdk-lock {
+  font-size: 11px;
+  color: var(--elevated);
+  flex-shrink: 0;
+}
+
+@media (max-width: 640px) {
+  .cmdk-overlay { padding-top: 8vh; padding-left: 14px; padding-right: 14px; }
+}

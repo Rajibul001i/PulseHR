@@ -119,6 +119,46 @@ export function revokeAllSessions(userId: string): number {
   return open.length;
 }
 
+/* --------------------------- password reset (F1.4) ------------------------ */
+// US-05 acceptance criteria: a link sent only to the registered address, expiring 30
+// minutes after issue, usable once. Stored hashed for the same reason refresh tokens are
+// (auth.ts:69) — a DB leak must not hand over the ability to take over every account.
+
+const RESET_TTL_MINUTES = 30;
+
+function hashResetToken(token: string): string {
+  return createHash('sha256').update(token).digest('hex');
+}
+
+export function issuePasswordResetToken(userId: string): string {
+  const token = randomBytes(32).toString('hex');
+  const expires = new Date(Date.now() + RESET_TTL_MINUTES * 60_000).toISOString();
+  run(
+    `INSERT INTO password_reset_token (id, user_id, token_hash, expires_at, created_at)
+     VALUES (?, ?, ?, ?, ?)`,
+    uuid(),
+    userId,
+    hashResetToken(token),
+    expires,
+    nowIso(),
+  );
+  return token;
+}
+
+/** Returns the user id the token belongs to, or null if invalid, expired, or already used. */
+export function consumePasswordResetToken(token: string): string | null {
+  const row = one(
+    'SELECT id, user_id, expires_at, used_at FROM password_reset_token WHERE token_hash = ?',
+    hashResetToken(token),
+  );
+  if (!row) return null;
+  if (row.used_at) return null; // single-use
+  if (String(row.expires_at) < nowIso()) return null; // 30-minute expiry
+
+  run('UPDATE password_reset_token SET used_at = ? WHERE id = ?', nowIso(), row.id);
+  return String(row.user_id);
+}
+
 /* ------------------------------ middleware ------------------------------- */
 
 export function authenticate(req: Request, res: Response, next: NextFunction): void {

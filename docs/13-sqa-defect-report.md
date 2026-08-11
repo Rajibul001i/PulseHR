@@ -152,16 +152,16 @@ features as defects inflates the count and hides the real ones.
 
 | ID | Function | Increment | Status |
 |---|---|---|---|
-| BUG-04 | F1.4 Password reset (US-05) | 1 | **Gap in Increment 1** — should have shipped |
 | BUG-05 | F2.2 Employee self-service contact update (US-09) | 2 | Not built |
 | BUG-13 | F6 OKR Performance | 3 | Not built |
 | BUG-14 | F7 Recruitment ATS | 3 | Not built |
 | BUG-15 | F8.3 Notice read tracking | 3 | Not built |
 
-**BUG-04 is flagged for the team's attention.** Password reset belongs to Increment 1, which
-is supposed to be complete. Under the Incremental Model an increment is done when *all* its
-functions pass their acceptance criteria — F1.4 has not. Increment 1 is therefore **not
-closed**, and saying so is the discipline the model requires.
+**BUG-04 (F1.4 password reset) is fixed as of 11 August 2026 — see §9.** Increment 1 is now
+closed: all five F1 functions pass their acceptance criteria. It was the one function in
+that increment not yet delivered, and under the Incremental Model an increment isn't done
+until every function in it is — this is worth recording precisely because it stayed
+un-closed for two sessions before anyone acted on the earlier flag.
 
 ---
 
@@ -169,7 +169,7 @@ closed**, and saying so is the discipline the model requires.
 
 | Feature | Functions | Implemented | Tested | Notes |
 |---|---|---|---|---|
-| F1 Authentication | 5 | 4 / 5 | ✅ | F1.4 password reset missing |
+| F1 Authentication | 5 | **5 / 5** | ✅ | Closed 11 Aug — F1.4 password reset shipped |
 | F2 Employee Info | 5 | 3 / 5 | ✅ | F2.2 self-service, F2.5 documents missing |
 | F3 Attendance | 5 | 5 / 5 | ✅ | |
 | F4 Leave | 5 | 4 / 5 | ✅ | F4.4 in-app notifications missing |
@@ -178,7 +178,7 @@ closed**, and saying so is the discipline the model requires.
 | F7 Recruitment (ATS) | 5 | 0 / 5 | — | Increment 3 |
 | F8 Noticeboard | 4 | 2 / 4 | ✅ | F8.2 priority, F8.3 read tracking missing |
 | F9 Attrition Risk | 5 | 5 / 5 | ✅ | |
-| **Total** | **43** | **27 / 43 (63%)** | | |
+| **Total** | **43** | **28 / 43 (65%)** | | |
 
 ---
 
@@ -285,11 +285,36 @@ immediately with `No handler registered for <type>`.
   `state: "DONE"` — a payroll run and a fresh attrition run (`scored: 20`,
   `bands: {LOW:16, MODERATE:1, ELEVATED:3, HIGH:0}`) — via `GET /jobs/:id`.
 
+### BUG-04 fixed — F1.4 password reset, Increment 1 closed
+
+> **F1.4 (US-05) was the one function keeping Increment 1 open. It now ships and passes its
+> stated acceptance criteria.**
+
+Built per US-05 exactly: `POST /auth/forgot-password` issues a single-use token expiring in
+30 minutes (migration `004_password_reset.sql`, `password_reset_token`, hashed the same way
+sessions are — auth.ts:69); `POST /auth/reset-password` consumes it and revokes every
+existing session, since a reset is presumably a response to a compromised password.
+Anti-enumeration is enforced identically to `/auth/login`: the same response regardless of
+whether the email is registered.
+
+**Documented limitation, not hidden:** no email provider is configured anywhere in this
+project (no SMTP/API-key secret exists). The token that a real deployment would email is
+returned directly in the API response instead (`demoResetToken`), and the frontend labels
+this plainly rather than pretending email delivery exists. A production build would wire
+this to a real provider (Resend, SES) and remove the field from the response entirely.
+
+- **Re-verified:** `bughunt.mjs`'s BUG-04 now runs the full cycle black-box — issue a token,
+  confirm the unregistered-email response is indistinguishable, consume the token, confirm
+  a second use is rejected, confirm the new password signs in. All five assertions pass.
+- Also verified through the real UI (Playwright): Login → "Forgot password?" → email →
+  demo link → new password → redirected to sign in → signs in successfully.
+
 ### Updated regression protection (§7)
 
 | Defect | Permanent test |
 |---|---|
 | BUG-18 | `bughunt.mjs` BUG-12 check now exercises the real API→queue→handler path, not just the job function |
+| BUG-04 | `bughunt.mjs` — full request/consume/reuse/login cycle, 5 assertions |
 
 **Recommendation for the team:** add an integration check that hits `POST /payroll/runs` (or
 `/attrition/runs`) and asserts `state: "DONE"` within N seconds — not just that the job

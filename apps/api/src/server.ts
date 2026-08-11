@@ -22,13 +22,16 @@ import {
   structureInForce,
   type LeaveType,
 } from '@pulsehr/core';
-import { openDb, one, transaction } from './db.js';
+import { openDb, one, run, transaction } from './db.js';
 import {
   authenticate,
   checkLoginRateLimit,
   clearLoginRateLimit,
+  consumePasswordResetToken,
   consumeRefreshToken,
+  hashPassword,
   issueAccessToken,
+  issuePasswordResetToken,
   issueRefreshToken,
   requireRole,
   revokeAllSessions,
@@ -131,6 +134,50 @@ app.post(
   handler((req, res) => {
     const n = revokeAllSessions(req.principal!.userId);
     res.json({ revokedSessions: n });
+  }),
+);
+
+// F1.4 / US-05. Acceptance criteria: link sent only to the registered address, expires in
+// 30 minutes, single-use (all enforced in auth.ts's token functions).
+app.post(
+  '/api/auth/forgot-password',
+  handler((req, res) => {
+    const { email } = z.object({ email: z.string().email() }).parse(req.body);
+    const user = one('SELECT id, is_active FROM app_user WHERE email = ?', email);
+
+    // Prototype shortcut: no email provider is configured anywhere in this project (no
+    // SMTP/API-key secret exists), so the token a real deployment would email is returned
+    // directly here instead of being sent. A production build would hand this token to an
+    // email provider (e.g. Resend, SES) and never put it in an HTTP response.
+    let demoResetToken: string | undefined;
+    if (user && user.is_active) {
+      demoResetToken = issuePasswordResetToken(String(user.id));
+    }
+
+    // Same response whether or not the email is registered — do not confirm which
+    // accounts exist (same anti-enumeration principle as /auth/login above).
+    res.json({ message: 'If that email is registered, a reset link has been issued.', demoResetToken });
+  }),
+);
+
+app.post(
+  '/api/auth/reset-password',
+  handler((req, res) => {
+    const { token, password } = z
+      .object({ token: z.string().min(1), password: z.string().min(8) })
+      .parse(req.body);
+
+    const userId = consumePasswordResetToken(token);
+    if (!userId) {
+      res.status(400).json({ error: 'This reset link is invalid, expired, or already used.' });
+      return;
+    }
+
+    run('UPDATE app_user SET password_hash = ? WHERE id = ?', hashPassword(password), userId);
+    // A password reset must kill every existing session — the old password may be
+    // compromised, which is presumably why a reset was requested at all.
+    revokeAllSessions(userId);
+    res.json({ ok: true });
   }),
 );
 

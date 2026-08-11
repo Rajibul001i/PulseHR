@@ -6,13 +6,17 @@ import { signedOut, type RootState } from './store';
 import { fetchSubscription, TIER_LABEL, trialDaysLeft } from './subscription';
 import { ToastProvider, useToast } from './components/Toast';
 import { EmptyState, TableSkeleton } from './components/Feedback';
+import { CommandPalette } from './components/CommandPalette';
 import { Login } from './pages/Login';
+import { ResetPassword } from './pages/ResetPassword';
 import { Dashboard } from './pages/Dashboard';
 import { Attendance } from './pages/Attendance';
 import { Leave } from './pages/Leave';
 import { Payslips } from './pages/Payslips';
 import { AtRisk } from './pages/AtRisk';
 import { Plan } from './pages/Plan';
+
+const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
 
 interface Notice {
   id: string;
@@ -102,6 +106,7 @@ function Shell() {
   const [theme, toggleTheme] = useTheme();
   const [sub, setSub] = useState<SubscriptionDto | null>(null);
   const [navOpen, setNavOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
 
   const role = (auth.role ?? 'EMPLOYEE') as Role;
 
@@ -148,6 +153,11 @@ function Shell() {
           Pulse<span>HR</span>
         </div>
         <div className="brand-sub">Predictive HRIS</div>
+
+        <button className="cmdk-trigger no-print" onClick={() => setPaletteOpen(true)}>
+          <span>Jump to…</span>
+          <kbd>{isMac ? '⌘K' : 'Ctrl K'}</kbd>
+        </button>
 
         {sub && (
           <div className="plan-chip">
@@ -204,6 +214,17 @@ function Shell() {
         </div>
       </aside>
 
+      <CommandPalette
+        open={paletteOpen}
+        onOpenChange={setPaletteOpen}
+        nav={NAV}
+        role={role}
+        subscription={sub}
+        theme={theme}
+        onToggleTheme={toggleTheme}
+        onSignOut={logout}
+      />
+
       <main className="main">
         <Routes>
           <Route path="/" element={<Dashboard role={role} subscription={sub} />} />
@@ -248,6 +269,18 @@ function ComingSoon({ title, body }: { title: string; body: string }) {
 
 export function App() {
   const authenticated = useSelector((s: RootState) => s.auth.authenticated);
+  const location = useLocation();
+
+  // Reachable regardless of auth state -- a reset link may be clicked with a stale session
+  // still in localStorage, and resetting a forgotten password shouldn't require signing in.
+  if (location.pathname === '/reset-password') {
+    return (
+      <ToastProvider>
+        <ResetPassword />
+      </ToastProvider>
+    );
+  }
+
   return (
     <ToastProvider>{authenticated ? <Shell /> : <Login />}</ToastProvider>
   );

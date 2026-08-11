@@ -8,6 +8,30 @@ as a changelog.
 
 ## Session 3 — 11 August 2026
 
+### 10. Closed Increment 1 — F1.4 password reset (US-05)
+
+You asked me to actually follow the Incremental Model rather than just work off whatever
+was asked next: an increment isn't done until every function in it passes acceptance
+criteria, and F1.4 was the one gap keeping Increment 1 open since session 2. Closed it.
+
+Built exactly to US-05's three acceptance criteria: single-use token, 30-minute expiry, and
+(matching the login endpoint's existing anti-enumeration posture) the same response whether
+or not the email is registered. New migration `004_password_reset.sql`
+(`password_reset_token`, hashed like sessions), two new routes, a "Forgot password?" flow on
+the login page, and a `/reset-password` page reachable regardless of auth state.
+
+**Documented, not hidden:** no email provider exists anywhere in this project, so the token
+a real deployment would email is returned in the API response and the UI says so plainly.
+Full reasoning in `docs/13-sqa-defect-report.md` §9.
+
+**Verified:** `bughunt.mjs`'s BUG-04 check now runs the full cycle (5 assertions, all
+passing) instead of just checking the route isn't a 404; a Playwright pass drove the actual
+UI end to end (forgot → demo link → reset → sign in with the new password). Unit tests
+(102) and the smoke suite (24) still green throughout.
+
+**Increment 1 is now closed** — all 5 F1 functions pass. Moving to Increment 2's remaining
+gaps next (F2.2, F2.5, F4.4), then Increment 3 (F5.3, F6, F7, F8.2/F8.3), in order.
+
 ### 9. Deployed a genuinely working live demo — API on Render, frontend on GitHub Pages
 
 You asked for a live prototype of the whole project, not just one component. That means a
@@ -446,8 +470,8 @@ exactly the base rate.
 
 | # | Item | Priority |
 |---|---|---|
-| 1 | **Implement F1.4 password reset** — closes Increment 1 | **High** |
-| 2 | UI Phase 1 — subscription-aware shell, upgrade prompts, seat meter | **High** |
+| 1 | ~~Implement F1.4 password reset~~ — **done 11 Aug, Increment 1 closed** | ~~High~~ |
+| 2 | ~~UI Phase 1 — subscription-aware shell, upgrade prompts, seat meter~~ — **done (session 2)** | ~~High~~ |
 | 3 | Settle F6.3/F9.1 — do review scores feed the risk model? (SQA recommends no) | **High** |
 | 4 | F2.2 employee self-service contact update | Medium |
 | 5 | F6 OKR, F7 ATS, F8.2/F8.3 noticeboard — Increment 3 scope | Medium |

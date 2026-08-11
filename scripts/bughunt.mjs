@@ -104,13 +104,60 @@ console.log('F1 · Authentication & Role Management');
   );
 }
 
-// US-05: password reset
+// US-05: password reset. Acceptance criteria: a reset link/token only for a registered
+// address, expires in 30 minutes, single-use. Exercised as a black box, the same path the
+// frontend takes (no direct DB access) -- the demoResetToken field is this prototype's
+// stand-in for "the link that would have been emailed" (no email provider is configured).
 {
-  const r = await call('/auth/forgot-password', {
+  const known = await call('/auth/forgot-password', {
     method: 'POST',
     body: { email: 'farhana.akter@meridian.test' },
   });
-  expect('BUG-04', 'US-05', 'Password-reset endpoint exists (F1.4)', r.status !== 404, `got ${r.status}`);
+  expect(
+    'BUG-04',
+    'US-05',
+    'Password-reset request issues a token for a registered address',
+    known.status === 200 && typeof known.body?.demoResetToken === 'string',
+    `got ${known.status}, demoResetToken=${known.body?.demoResetToken}`,
+  );
+
+  const unknown = await call('/auth/forgot-password', {
+    method: 'POST',
+    body: { email: 'nobody-at-all@meridian.test' },
+  });
+  expect(
+    'BUG-04',
+    'US-05',
+    'Password-reset gives the same response for an unregistered address (no enumeration)',
+    unknown.status === known.status && unknown.body?.message === known.body?.message && !unknown.body?.demoResetToken,
+    `got ${unknown.status} ${JSON.stringify(unknown.body)}`,
+  );
+
+  const token = known.body?.demoResetToken;
+  const NEW_PASSWORD = 'ResetByBughunt1!';
+  const reset = await call('/auth/reset-password', { method: 'POST', body: { token, password: NEW_PASSWORD } });
+  expect('BUG-04', 'US-05', 'The issued token actually resets the password', reset.status === 200, `got ${reset.status}`);
+
+  const reuse = await call('/auth/reset-password', { method: 'POST', body: { token, password: 'AnotherOne1!' } });
+  expect(
+    'BUG-04',
+    'US-05',
+    'A used reset token cannot be used a second time',
+    reuse.status === 400,
+    `got ${reuse.status} -- reused a spent token`,
+  );
+
+  const loginNew = await call('/auth/login', {
+    method: 'POST',
+    body: { email: 'farhana.akter@meridian.test', password: NEW_PASSWORD },
+  });
+  expect('BUG-04', 'US-05', 'Sign-in works with the new password', loginNew.status === 200, `got ${loginNew.status}`);
+
+  // Put the seed password back so the rest of this run (and re-runs) aren't affected.
+  const freshToken = (
+    await call('/auth/forgot-password', { method: 'POST', body: { email: 'farhana.akter@meridian.test' } })
+  ).body?.demoResetToken;
+  await call('/auth/reset-password', { method: 'POST', body: { token: freshToken, password: 'Passw0rd!' } });
 }
 
 /* ---------------------------------------------------------------------- */
