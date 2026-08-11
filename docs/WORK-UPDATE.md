@@ -8,6 +8,39 @@ as a changelog.
 
 ## Session 3 — 11 August 2026
 
+### 13. Final regression pass and live-demo redeploy — all four increments closed
+
+With Increment 3 closed, this closes out the session: a full regression pass from a clean
+reseed, then both halves of the live demo redeployed with everything built this session.
+
+**Regression, clean reseed + freshly-restarted server:** 102 unit tests, 20 smoke checks, 50
+adversarial bug-hunt checks — **0 defects, 0 unbuilt features** — `tsc -b` and `vite build`
+both clean.
+
+**Render API:** the blueprint's auto-deploy picked up the push on its own — no manual
+redeploy needed. Confirmed live with an authenticated request against `/api/vacancies`,
+`/api/okr/objectives` and `/api/notices`: all three respond correctly, meaning migrations
+008-010 (OKR, ATS, noticeboard audience/read-tracking) applied cleanly against the live
+instance's reseed-on-boot SQLite.
+
+**GitHub Pages `/app/`:** rebuilt via a `gh-pages` worktree with
+`VITE_API_BASE=https://pulsehr-api-n7il.onrender.com/api npx vite build --base=/PulseHR/app/`
+and pushed — the same process as the original live-demo deploy in entry #9, run again with
+this session's code. The prototype picker at the branch root was untouched.
+
+**Verified with a real browser against the actual live URLs** (not local dev): signed in at
+https://rajibul001i.github.io/PulseHR/app/ against the live Render API, and loaded
+Performance, Recruitment, Noticeboard and Payslips — all four of this session's closed
+increments — with no console errors beyond the two expected 404/400s from normal empty-state
+API calls.
+
+**Where the project stands:** all four increments closed under ADR-001, 43/43 functions
+(100%) built and tested per `docs/13-sqa-defect-report.md`. Remaining backlog is entirely
+post-MVP or judgment calls for the team (§ Standing backlog below) — F6.3/F9.1's bias
+question, UI polish phases 2-4, the OKR-engagement attrition signal, payment/billing
+infrastructure, and a full audit of every Bangladesh Labour Act figure against the
+consolidated text.
+
 ### 12. Closed Increment 3 — F5.3 real PDF payslips, F6 OKR, F7 ATS, F8 noticeboard
 
 Continuing the same incremental discipline as #10 and #11: Increment 3 had four open gaps
