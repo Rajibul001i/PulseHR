@@ -24,13 +24,28 @@ export function Login() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [forgotResult, setForgotResult] = useState<ForgotResponse | null>(null);
+  // The live demo's API is on Render's free tier, which sleeps after 15 minutes idle and
+  // takes 30-60s to wake on the next request. Without this, "Signing in..." on a button for
+  // a full minute with nothing else on the page reads exactly like the app is frozen -- this
+  // says what's actually happening instead of leaving that to be guessed at.
+  const [slowHint, setSlowHint] = useState(false);
+
+  async function withSlowHint<T>(fn: () => Promise<T>): Promise<T> {
+    const timer = setTimeout(() => setSlowHint(true), 4000);
+    try {
+      return await fn();
+    } finally {
+      clearTimeout(timer);
+      setSlowHint(false);
+    }
+  }
 
   async function submit(e: FormEvent) {
     e.preventDefault();
     setBusy(true);
     setError(null);
     try {
-      const res = await post<LoginResponse>('/auth/login', { email, password });
+      const res = await withSlowHint(() => post<LoginResponse>('/auth/login', { email, password }));
       tokens.set(res.accessToken, res.refreshToken);
       dispatch(signedIn(res.user));
     } catch (err) {
@@ -46,7 +61,7 @@ export function Login() {
     setError(null);
     setForgotResult(null);
     try {
-      const res = await post<ForgotResponse>('/auth/forgot-password', { email });
+      const res = await withSlowHint(() => post<ForgotResponse>('/auth/forgot-password', { email }));
       setForgotResult(res);
     } catch (err) {
       setError((err as Error).message);
@@ -90,6 +105,12 @@ export function Login() {
             <button className="primary" style={{ width: '100%' }} disabled={busy}>
               {busy ? 'Signing in…' : 'Sign in'}
             </button>
+            {busy && slowHint && (
+              <p className="notice content-in" style={{ textAlign: 'center', margin: '10px 0 0' }}>
+                Waking up the demo server — it sleeps when idle and can take up to a minute to
+                respond on the first request. Still working, not stuck.
+              </p>
+            )}
             <p style={{ textAlign: 'center', margin: '12px 0 0' }}>
               <button
                 type="button"
@@ -123,6 +144,12 @@ export function Login() {
               <button className="primary" style={{ width: '100%' }} disabled={busy}>
                 {busy ? 'Sending…' : 'Send reset link'}
               </button>
+            )}
+            {busy && slowHint && (
+              <p className="notice content-in" style={{ textAlign: 'center', margin: '10px 0 0' }}>
+                Waking up the demo server — it sleeps when idle and can take up to a minute to
+                respond on the first request. Still working, not stuck.
+              </p>
             )}
 
             {forgotResult && (
