@@ -25,6 +25,23 @@ export const tokens = {
   },
 };
 
+/**
+ * When the refresh token is dead (expired, or its session was wiped -- the free-tier Render
+ * deploy reseeds its database on every cold start, which drops all sessions), the old code
+ * cleared the tokens but left Redux's `authenticated` flag untouched. The sidebar kept
+ * rendering as if signed in while every subsequent call went out with no Authorization
+ * header at all, so nothing worked and there was no explanation why. A hard reload is the
+ * simplest correct recovery: it re-evaluates the store's initial state from (now-empty)
+ * storage, so the app lands cleanly back on the login screen instead of a half-alive shell.
+ */
+function forceSignOut(): void {
+  tokens.clear();
+  localStorage.removeItem('pulsehr.email');
+  localStorage.removeItem('pulsehr.role');
+  localStorage.removeItem('pulsehr.employeeId');
+  window.location.reload();
+}
+
 export class ApiError extends Error {
   constructor(
     public readonly status: number,
@@ -58,10 +75,7 @@ async function tryRefresh(): Promise<boolean> {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ refreshToken: tokens.refresh }),
     });
-    if (!res.ok) {
-      tokens.clear();
-      return false;
-    }
+    if (!res.ok) return false;
     const data = (await res.json()) as { accessToken: string; refreshToken: string };
     tokens.set(data.accessToken, data.refreshToken);
     return true;
@@ -74,8 +88,18 @@ async function tryRefresh(): Promise<boolean> {
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   let res = await raw(path, init);
 
-  if (res.status === 401 && tokens.refresh) {
-    if (await tryRefresh()) res = await raw(path, init);
+  // /auth/* (login, forgot/reset-password) is reachable while signed out and returns its own
+  // 401s for ordinary reasons (wrong password) -- those must reach the caller as a normal
+  // error, not be treated as a dead session and trigger a reload mid-login.
+  if (res.status === 401 && !path.startsWith('/auth/')) {
+    if (tokens.refresh && (await tryRefresh())) {
+      res = await raw(path, init);
+    } else {
+      forceSignOut();
+      // The reload above tears the page down shortly; this just stops the caller from
+      // treating a stale response as real data in the meantime.
+      throw new ApiError(401, 'Your session has expired. Please sign in again.');
+    }
   }
 
   if (!res.ok) {
