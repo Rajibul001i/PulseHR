@@ -528,3 +528,32 @@ four increments are now closed under ADR-001 — every function declared in the 
 | — (F6) | `bughunt.mjs` BUG-13 — 8 assertions across US-30..US-33 |
 | — (F7) | `bughunt.mjs` BUG-14 — 8 assertions across US-34..US-38 |
 | — (F8, including the F8.1 gap) | `bughunt.mjs` BUG-15 — 5 assertions across US-39..US-42 |
+
+---
+
+## 12. Addendum — 13 August 2026 — self-service billing
+
+Not one of the 43 F1-F9 functions (billing/subscription is the commercial layer, not core
+HR), so it doesn't move §5's total — recorded here because it was found the same way
+everything else in this report was: by checking what the UI claimed against what actually
+happened when you clicked it.
+
+### BUG-23 — Severity: Medium · Plan & billing's Upgrade/Downgrade buttons did nothing
+
+> **Every button on the pricing cards rendered, was clickable, and had no `onClick` handler
+> at all.** Clicking "Upgrade" did nothing, silently.
+
+`docs/11-subscription-model.md` §8 always documented self-service plan change as deferred —
+this was scope, not a hidden defect — but the buttons existing and doing nothing is a worse
+experience than not showing them, since nothing told the user why.
+
+- **Fix:** real self-service upgrade/downgrade, with actual proration (credit the unused
+  days on the current plan this month, charge the new plan for the same days) and an
+  `invoice` row recording the net result — `packages/core/src/billing.ts` (5 unit tests),
+  `Repo.changeSubscription` (`apps/api/src/repo.ts`), 3 new routes. A downgrade that would
+  leave more active employees than the new tier's seat limit is refused before it applies.
+- **What's still simulated:** no payment gateway exists for this project, so "payment"
+  always succeeds. Documented plainly in `docs/11-subscription-model.md` §8, not hidden.
+- **Re-verified:** `bughunt.mjs` BUG-23 (6 assertions) and a full Playwright pass —
+  upgrade Growth→Enterprise, check the proration preview and resulting invoice, downgrade
+  back to Growth, check the credit note.

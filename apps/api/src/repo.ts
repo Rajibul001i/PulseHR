@@ -12,12 +12,15 @@
 
 import {
   balanceOf,
+  businessDate,
+  previewPlanChange,
   type AttritionResult,
   type LeaveLedgerEntry,
   type LeaveRequest,
   type LeaveType,
   type Payslip,
   type SalaryStructure,
+  type Tier,
 } from '@pulsehr/core';
 import { all, nowIso, one, run, transaction, uuid, type Row } from './db.js';
 
@@ -1138,6 +1141,96 @@ export class Repo {
     return all('SELECT holiday_date FROM holiday WHERE organisation_id = ?', this.orgId).map((r) =>
       String(r.holiday_date),
     );
+  }
+
+  /* ------------------------------- billing -------------------------------
+   * Self-service plan change, simulated. docs/11-subscription-model.md §8.
+   */
+
+  private static readonly SEAT_LIMIT: Record<Tier, number> = { STARTER: 50, GROWTH: 300, ENTERPRISE: 5000 };
+
+  previewSubscriptionChange(newTier: Tier) {
+    const org = one('SELECT tier FROM organisation WHERE id = ?', this.orgId);
+    if (!org) throw new Error(`Unknown organisation ${this.orgId}`);
+    return previewPlanChange(org.tier as Tier, newTier, businessDate(new Date()));
+  }
+
+  /**
+   * A downgrade that would leave more active employees than the new tier's seat limit is
+   * refused -- the seat-limit check elsewhere in this app (F1/subscription model) exists
+   * precisely so a tenant can't silently exceed what they're paying for, and applying that
+   * only going forward while ignoring it here would defeat the whole point of the check.
+   */
+  changeSubscription(
+    newTier: Tier,
+    actorUserId: string,
+  ): { ok: true; invoice: Row } | { ok: false; error: 'SAME_TIER' | 'SEAT_LIMIT_EXCEEDED'; seatsUsed?: number } {
+    const org = one('SELECT tier FROM organisation WHERE id = ?', this.orgId);
+    if (!org) throw new Error(`Unknown organisation ${this.orgId}`);
+    const currentTier = org.tier as Tier;
+    if (currentTier === newTier) return { ok: false, error: 'SAME_TIER' };
+
+    if (Repo.SEAT_LIMIT[newTier] < Repo.SEAT_LIMIT[currentTier]) {
+      const seatsUsed = Number(
+        one(
+          `SELECT COUNT(*) AS n FROM employee WHERE organisation_id = ? AND employment_status = 'ACTIVE'`,
+          this.orgId,
+        )?.n ?? 0,
+      );
+      if (seatsUsed > Repo.SEAT_LIMIT[newTier]) {
+        return { ok: false, error: 'SEAT_LIMIT_EXCEEDED', seatsUsed };
+      }
+    }
+
+    const today = businessDate(new Date());
+    const preview = previewPlanChange(currentTier, newTier, today);
+    const invoiceId = uuid();
+    const eventType = preview.changeType === 'UPGRADE' ? 'UPGRADED' : 'DOWNGRADED';
+    const description =
+      preview.changeType === 'UPGRADE'
+        ? `Upgrade ${currentTier} -> ${newTier}, prorated for ${preview.daysRemaining}/${preview.daysInMonth} remaining days this month`
+        : `Downgrade ${currentTier} -> ${newTier}, prorated credit for ${preview.daysRemaining}/${preview.daysInMonth} remaining days this month`;
+
+    transaction(() => {
+      run(
+        'UPDATE organisation SET tier = ?, seat_limit = ? WHERE id = ?',
+        newTier,
+        Repo.SEAT_LIMIT[newTier],
+        this.orgId,
+      );
+      run(
+        `INSERT INTO subscription_event
+           (id, organisation_id, event_type, from_tier, to_tier, effective_on, actor_user_id, note, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        uuid(),
+        this.orgId,
+        eventType,
+        currentTier,
+        newTier,
+        today,
+        actorUserId,
+        description,
+        nowIso(),
+      );
+      run(
+        `INSERT INTO invoice (id, organisation_id, tier, amount_paisa, description, status, issued_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        invoiceId,
+        this.orgId,
+        newTier,
+        preview.netDuePaisa,
+        description,
+        preview.netDuePaisa < 0 ? 'CREDITED' : 'PAID',
+        nowIso(),
+      );
+    });
+    this.audit(eventType, 'organisation', this.orgId, { from: currentTier, to: newTier, netDuePaisa: preview.netDuePaisa });
+
+    return { ok: true, invoice: one('SELECT * FROM invoice WHERE id = ?', invoiceId)! };
+  }
+
+  listInvoices(): Row[] {
+    return all('SELECT * FROM invoice WHERE organisation_id = ? ORDER BY issued_at DESC', this.orgId);
   }
 }
 

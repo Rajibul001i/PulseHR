@@ -3,13 +3,19 @@
  *
  * The screen the product did not have. A customer could not see what tier they were on,
  * what it included, how many seats they had used, or what upgrading would give them.
+ *
+ * Self-service upgrade/downgrade, proration and invoicing (docs/11-subscription-model.md
+ * §8) were deliberately deferred pending a payment gateway this project doesn't have. The
+ * proration math and audit trail below are real; "payment" is simulated since there is
+ * nothing to charge against.
  */
 
 import { useEffect, useState } from 'react';
 import { formatBDT } from '@pulsehr/core';
-import { type PlanFeatureDto, type SubscriptionDto, type Tier } from '../api';
+import { get, post, type PlanFeatureDto, type SubscriptionDto, type Tier } from '../api';
 import { fetchSubscription, TIER_LABEL, TIER_ORDER, trialDaysLeft } from '../subscription';
 import { StatSkeleton } from '../components/Feedback';
+import { useToast } from '../components/Toast';
 
 const TIER_PRICE: Record<Tier, number> = {
   STARTER: 25_000_00,
@@ -23,15 +29,78 @@ const TIER_SEATS: Record<Tier, string> = {
   ENTERPRISE: '300+ employees',
 };
 
+interface ProrationPreview {
+  changeType: 'UPGRADE' | 'DOWNGRADE';
+  daysRemaining: number;
+  daysInMonth: number;
+  unusedCreditPaisa: number;
+  newChargePaisa: number;
+  netDuePaisa: number;
+}
+
+interface InvoiceDto {
+  id: string;
+  tier: Tier;
+  amount_paisa: number;
+  description: string;
+  status: 'PAID' | 'CREDITED';
+  issued_at: string;
+}
+
 export function Plan() {
+  const toast = useToast();
   const [sub, setSub] = useState<SubscriptionDto | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [invoices, setInvoices] = useState<InvoiceDto[] | null>(null);
+
+  const [changingTier, setChangingTier] = useState<Tier | null>(null);
+  const [preview, setPreview] = useState<ProrationPreview | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+
+  async function load() {
+    try {
+      const [s, inv] = await Promise.all([fetchSubscription(), get<InvoiceDto[]>('/subscription/invoices')]);
+      setSub(s);
+      setInvoices(inv);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
 
   useEffect(() => {
-    fetchSubscription()
-      .then(setSub)
-      .catch((e: Error) => setError(e.message));
+    void load();
   }, []);
+
+  async function openPreview(tier: Tier) {
+    setChangingTier(tier);
+    setPreview(null);
+    setPreviewLoading(true);
+    try {
+      setPreview(await get<ProrationPreview>(`/subscription/preview-change?tier=${tier}`));
+    } catch (err) {
+      toast.error((err as Error).message);
+      setChangingTier(null);
+    } finally {
+      setPreviewLoading(false);
+    }
+  }
+
+  async function confirmChange() {
+    if (!changingTier) return;
+    setConfirming(true);
+    try {
+      await post('/subscription/change', { tier: changingTier });
+      toast.success(`Moved to ${TIER_LABEL[changingTier]}. Invoice issued.`);
+      setChangingTier(null);
+      setPreview(null);
+      await load();
+    } catch (err) {
+      toast.error((err as Error).message);
+    } finally {
+      setConfirming(false);
+    }
+  }
 
   if (error) return <p className="error content-in">{error}</p>;
   if (!sub) return <StatSkeleton count={3} />;
@@ -100,6 +169,7 @@ export function Plan() {
         {TIER_ORDER.map((tier, i) => {
           const current = tier === sub.tier;
           const cumulative = TIER_ORDER.slice(0, TIER_ORDER.indexOf(tier) + 1).flatMap(byTier);
+          const isUpgrade = TIER_ORDER.indexOf(tier) > TIER_ORDER.indexOf(sub.tier);
           return (
             <div
               className={`card plan-card content-in ${current ? 'current' : ''}`}
@@ -121,8 +191,8 @@ export function Plan() {
                 ))}
               </ul>
               {!current && (
-                <button className={TIER_ORDER.indexOf(tier) > TIER_ORDER.indexOf(sub.tier) ? 'primary' : ''}>
-                  {TIER_ORDER.indexOf(tier) > TIER_ORDER.indexOf(sub.tier) ? 'Upgrade' : 'Downgrade'}
+                <button className={isUpgrade ? 'primary' : ''} onClick={() => openPreview(tier)}>
+                  {isUpgrade ? 'Upgrade' : 'Downgrade'}
                 </button>
               )}
             </div>
@@ -130,10 +200,87 @@ export function Plan() {
         })}
       </div>
 
-      <p className="notice">
-        Plan changes are handled by your account manager in this release. Self-service upgrade
-        and payment integration are documented in <code>docs/11-subscription-model.md</code> §8.
-      </p>
+      {changingTier && (
+        <div className="card content-in" style={{ borderColor: 'var(--accent)' }}>
+          <h3>
+            {preview?.changeType === 'DOWNGRADE' ? 'Confirm downgrade' : 'Confirm upgrade'} to{' '}
+            {TIER_LABEL[changingTier]}
+          </h3>
+          {previewLoading || !preview ? (
+            <p className="notice">Calculating proration…</p>
+          ) : (
+            <>
+              <table style={{ marginBottom: 14 }}>
+                <tbody>
+                  <tr>
+                    <td>Days remaining this month</td>
+                    <td className="num">
+                      {preview.daysRemaining} / {preview.daysInMonth}
+                    </td>
+                  </tr>
+                  <tr>
+                    <td>Credit for unused {TIER_LABEL[sub.tier]} time</td>
+                    <td className="num">-{formatBDT(preview.unusedCreditPaisa)}</td>
+                  </tr>
+                  <tr>
+                    <td>{TIER_LABEL[changingTier]} charge for the same days</td>
+                    <td className="num">{formatBDT(preview.newChargePaisa)}</td>
+                  </tr>
+                  <tr style={{ fontWeight: 700 }}>
+                    <td>{preview.netDuePaisa < 0 ? 'Credit issued today' : 'Due today'}</td>
+                    <td className="num">{formatBDT(Math.abs(preview.netDuePaisa))}</td>
+                  </tr>
+                </tbody>
+              </table>
+              <p className="notice" style={{ marginBottom: 14 }}>
+                From your next full billing cycle, you'll be charged {formatBDT(TIER_PRICE[changingTier])}
+                /month at the {TIER_LABEL[changingTier]} rate.
+              </p>
+              <button className="sm" onClick={() => setChangingTier(null)} disabled={confirming}>
+                Cancel
+              </button>{' '}
+              <button className="primary sm" onClick={confirmChange} disabled={confirming}>
+                {confirming ? 'Confirming…' : `Confirm ${preview.changeType === 'DOWNGRADE' ? 'downgrade' : 'upgrade'}`}
+              </button>
+            </>
+          )}
+        </div>
+      )}
+
+      <h2>Invoices</h2>
+      {invoices === null ? (
+        <StatSkeleton count={1} />
+      ) : invoices.length === 0 ? (
+        <p className="notice">No invoices yet — plan changes and renewals will appear here.</p>
+      ) : (
+        <div className="card">
+          <table>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Description</th>
+                <th>Status</th>
+                <th className="num">Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              {invoices.map((inv) => (
+                <tr key={inv.id}>
+                  <td>{new Date(inv.issued_at).toLocaleDateString()}</td>
+                  <td className="stat-note">{inv.description}</td>
+                  <td>
+                    <span className={`badge ${inv.status === 'PAID' ? 'APPROVED' : 'LOW'}`}>{inv.status}</span>
+                  </td>
+                  <td className="num">
+                    {inv.amount_paisa < 0 ? '-' : ''}
+                    {formatBDT(Math.abs(inv.amount_paisa))}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </>
   );
 }

@@ -6,6 +6,92 @@ as a changelog.
 
 ---
 
+## Session 4 — 13 August 2026
+
+Direct feedback on the live demo after Session 3's close-out: a session-recovery bug that
+left the app stuck, the live API's cold start reading as "frozen," self-service billing
+buttons that didn't do anything, and the interface itself judged dated. All four addressed.
+
+### 1. Fixed: a dead session left the app stuck instead of bouncing to login
+
+Reported live: after signing in, every button stopped working with "Missing bearer token,"
+while the sidebar still showed as signed in. Root cause: when a refresh token died (expired,
+or — on the Render free-tier demo — invalidated because the whole database gets wiped and
+reseeded on every cold start), `tryRefresh()` cleared the stored tokens but never reset
+Redux's `authenticated` flag or the persisted identity fields. Every request from then on
+went out with no Authorization header, and the shell had no way to recover short of the user
+manually clearing storage.
+
+Fixed by forcing a full sign-out and reload back to the login screen whenever a request 401s
+and refresh can't recover it. `/auth/*` is explicitly excluded from this path — login and
+forgot-password legitimately return their own 401s (wrong password) that must reach the
+caller as a normal error, not trigger a reload mid-login; verified both paths hold with
+Playwright, including simulating a dead session by corrupting the stored tokens directly.
+
+### 2. Fixed: a slow cold start read as "the app is frozen"
+
+Same feedback session: "the server is too slow." The live API is on Render's free tier,
+which sleeps after 15 minutes idle and can take 30-60s to wake on the next request — during
+that wait the login button just said "Signing in…" with nothing else on the page, which
+reads exactly like the app is frozen, not merely slow. If a request takes more than 4
+seconds, the login and forgot-password forms now explain what's happening instead of
+leaving it to be guessed at. Verified with a simulated 6-second-delayed response.
+
+### 3. Rebrand — new logo, teal accent default, a palette switcher
+
+You provided a new logo (a rendered image, not a source file) and said the current one was
+wrong — this directly reversed an earlier instruction in this project to leave the logo
+alone, so I confirmed the swap explicitly before touching anything. Since no source asset
+existed, the mark (ascending "pulse" bars + a heartbeat pin) is a fresh SVG interpretation
+built to match what was shown, not a pixel-perfect reproduction, applied consistently across
+the sidebar, login, reset-password and public careers pages plus a matching favicon.
+
+Introduced a second theming axis independent of the existing light/dark toggle: an accent
+palette (Pulse/Classic/Violet, `[data-palette]` on `<html>`, persisted separately from
+`[data-theme]`). Pulse — teal, brand-aligned — is now the default, replacing the old
+hard-coded blue; Classic keeps the original blue so no one's existing preference is lost;
+Violet is a genuine third option, since "we need more themes" meant plural. A swatch-
+triggered switcher sits next to the theme toggle, closing on an outside click via a document
+listener rather than a full-page scrim — that exact pattern already caused a real bug once
+this session (the notification bell), so it wasn't repeated here.
+
+### 4. Visual redesign pass
+
+"The UI/UX is boring and not up to date," specifically. Since most pages already share their
+card/table/button/typography styling centrally in `styles.css`, the redesign lives almost
+entirely there rather than touching each page — refining the shared tokens cascades the
+update everywhere at once. Bigger, bolder headings and stat numbers; a theme-aware card
+shadow token (`--card-shadow`) for real depth instead of a flat border; a coherent 9px/12px
+corner-radius scale across buttons, inputs and cards; a soft accent-tinted glow on primary
+buttons and the active sidebar item instead of a flat colour block. Deliberately did not add
+glassmorphism, blur or heavier animation — `docs/12-ui-modernisation.md` §3 already flags
+those as fashionable but wrong for this product, and nothing about that reasoning changed.
+
+### 5. Self-service plan upgrade/downgrade, with real proration and invoicing
+
+The Plan & billing page's Upgrade/Downgrade buttons had never had a click handler — clicking
+them did nothing, which is what prompted "I can't upgrade or downgrade." A payment gateway
+is still out of scope (no merchant account exists for this project), so a plan change applies
+immediately and "payment" is simulated — but the proration math is real: the unused portion
+of the current plan for the rest of the calendar month is credited, the new plan is charged
+for the same days, and the net amount is recorded as an invoice (`packages/core/src/billing.ts`,
+5 unit tests covering upgrade/downgrade/no-op/boundary days). A downgrade that would leave
+more active employees than the new tier's seat limit is refused before it applies. Full
+writeup in `docs/11-subscription-model.md` §8.
+
+**Verified:** `bughunt.mjs` BUG-23 (6 assertions: preview, confirm, same-tier refusal,
+non-HR-role refusal, downgrade credit, invoice history) and a full Playwright pass —
+Bengal Logistics (seeded GROWTH) upgrades to Enterprise, the proration preview and resulting
+invoice are checked, then downgrades back to Growth and the credit note is checked. Full
+regression on a clean reseed: 107 unit tests (5 new), 20 smoke, 56 bughunt checks (6 new) —
+all green, typecheck and build clean.
+
+**Live demo redeployed** with all of the above — Render API auto-deployed from the push;
+GitHub Pages `/app/` rebuilt via the `gh-pages` worktree and pushed, each fix verified
+against the actual live URLs, not just local dev.
+
+---
+
 ## Session 3 — 11 August 2026
 
 ### 13. Final regression pass and live-demo redeploy — all four increments closed

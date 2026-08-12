@@ -5,3 +5,4 @@ export * from './payroll.js';
 export * from './leave.js';
 export * from './attrition.js';
 export * from './subscription.js';
+export * from './billing.js';

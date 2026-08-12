@@ -891,6 +891,52 @@ app.get(
   }),
 );
 
+const TIER_SCHEMA = z.enum(['STARTER', 'GROWTH', 'ENTERPRISE']);
+
+/**
+ * Self-service plan change, simulated (docs/11-subscription-model.md §8: no payment gateway
+ * exists for this build). The proration math is real; "payment" always succeeds since there
+ * is nothing to fail against -- see repo.ts's changeSubscription for the actual logic.
+ */
+app.get(
+  '/api/subscription/preview-change',
+  requireRole('HR_ADMIN'),
+  handler((req, res) => {
+    const newTier = TIER_SCHEMA.parse(req.query.tier);
+    try {
+      res.json(repoOf(req).previewSubscriptionChange(newTier));
+    } catch (err) {
+      res.status(400).json({ error: (err as Error).message });
+    }
+  }),
+);
+
+app.post(
+  '/api/subscription/change',
+  requireRole('HR_ADMIN'),
+  handler((req, res) => {
+    const { tier } = z.object({ tier: TIER_SCHEMA }).parse(req.body);
+    const result = repoOf(req).changeSubscription(tier, req.principal!.userId);
+    if (!result.ok) {
+      const message =
+        result.error === 'SAME_TIER'
+          ? 'You are already on this plan'
+          : `This plan's seat limit is below your ${result.seatsUsed} active employees -- reduce headcount before downgrading`;
+      res.status(400).json({ error: message });
+      return;
+    }
+    res.status(201).json(result.invoice);
+  }),
+);
+
+app.get(
+  '/api/subscription/invoices',
+  requireRole('HR_ADMIN'),
+  handler((req, res) => {
+    res.json(repoOf(req).listInvoices());
+  }),
+);
+
 app.get(
   '/api/departments',
   handler((req, res) => {

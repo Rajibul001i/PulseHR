@@ -1,6 +1,13 @@
 # UI/UX — What's Modern, and What Actually Matters for Subscription Software
 
-**Status:** recommendation. Implementation is the next work item.
+**Status:** Phases 1–2 and most of Phase 3 shipped (subscription-aware shell, toasts,
+skeletons, empty states, optimistic leave decisions, command palette, light/dark). 13 August
+2026 added a rebrand (new logo/mark, a second theming axis for accent colour — Pulse/
+Classic/Violet — replacing the single hard-coded blue) and a visual refresh of the shared
+design tokens (typography scale, card depth, button/nav polish) in response to direct
+feedback that the interface felt dated. Still open: responsive/mobile shell (Phase 3 §11),
+sortable/filterable data tables (Phase 3 §14), and all of Phase 4 (WCAG AA audit, Bangla
+localisation).
 **Why now:** the current dashboard is a competent 2015 admin panel. It is not wrong; it is
 dated, and — more importantly — **it has no idea it is part of a subscription product.**
 

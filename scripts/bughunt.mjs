@@ -786,6 +786,81 @@ console.log('\nSubscription / tiering — the product is sold per tier');
 }
 
 /* ---------------------------------------------------------------------- */
+console.log('\nSelf-service billing (docs/11-subscription-model.md §8)');
+
+// Bengal Logistics starts and ends this block on GROWTH -- upgrades to ENTERPRISE and back,
+// so the tier BUG-17 above depends on is unchanged for the next run of this script.
+{
+  const upPreview = await call('/subscription/preview-change?tier=ENTERPRISE', { token: hrB.accessToken });
+  expect(
+    'BUG-23',
+    'Business model',
+    'Previewing an upgrade returns a positive amount due, prorated for days left this month',
+    upPreview.status === 200 && upPreview.body?.changeType === 'UPGRADE' && upPreview.body?.netDuePaisa > 0,
+    `status ${upPreview.status}, body ${JSON.stringify(upPreview.body)}`,
+  );
+
+  const upConfirm = await call('/subscription/change', {
+    method: 'POST',
+    token: hrB.accessToken,
+    body: { tier: 'ENTERPRISE' },
+  });
+  const afterUp = await call('/subscription', { token: hrB.accessToken });
+  expect(
+    'BUG-23',
+    'Business model',
+    'Confirming an upgrade issues a PAID invoice and the tier actually changes',
+    upConfirm.status === 201 &&
+      upConfirm.body?.status === 'PAID' &&
+      upConfirm.body?.amount_paisa === upPreview.body?.netDuePaisa &&
+      afterUp.body?.tier === 'ENTERPRISE',
+    `confirm ${upConfirm.status}, invoice status ${upConfirm.body?.status}, tier now ${afterUp.body?.tier}`,
+  );
+
+  const sameTier = await call('/subscription/change', {
+    method: 'POST',
+    token: hrB.accessToken,
+    body: { tier: 'ENTERPRISE' },
+  });
+  expect('BUG-23', 'Business model', 'Changing to the already-active plan is refused', sameTier.status === 400, `got ${sameTier.status}`);
+
+  const notHr = await call('/subscription/change', {
+    method: 'POST',
+    token: mgr.accessToken,
+    body: { tier: 'STARTER' },
+  });
+  expect('BUG-23', 'Business model', 'A non-HR role cannot change the plan', notHr.status === 403, `got ${notHr.status}`);
+
+  const downPreview = await call('/subscription/preview-change?tier=GROWTH', { token: hrB.accessToken });
+  const downConfirm = await call('/subscription/change', {
+    method: 'POST',
+    token: hrB.accessToken,
+    body: { tier: 'GROWTH' },
+  });
+  const afterDown = await call('/subscription', { token: hrB.accessToken });
+  expect(
+    'BUG-23',
+    'Business model',
+    'A downgrade issues a credit note and restores the original tier',
+    downPreview.body?.changeType === 'DOWNGRADE' &&
+      downPreview.body?.netDuePaisa < 0 &&
+      downConfirm.status === 201 &&
+      downConfirm.body?.status === 'CREDITED' &&
+      afterDown.body?.tier === 'GROWTH',
+    `preview net ${downPreview.body?.netDuePaisa}, confirm status ${downConfirm.body?.status}, tier now ${afterDown.body?.tier}`,
+  );
+
+  const invoices = await call('/subscription/invoices', { token: hrB.accessToken });
+  expect(
+    'BUG-23',
+    'Business model',
+    'Both the upgrade and the downgrade are recorded in invoice history',
+    Array.isArray(invoices.body) && invoices.body.length >= 2,
+    `got ${invoices.body?.length ?? 0} invoices`,
+  );
+}
+
+/* ---------------------------------------------------------------------- */
 console.log(`\n${checks} checks, ${findings.length} defects found\n`);
 for (const f of findings) {
   console.log(`${f.id}  (${f.story})  ${f.description}`);

@@ -368,7 +368,7 @@ for (const table of [
   'notification', 'password_reset_token', 'employee_document', // added with migrations 004-007
   'objective', 'review_score', 'candidate', 'vacancy', // added with migrations 008-009
   'session', 'employee', 'app_user', 'department',
-  'subscription_event', 'feature_gate_hit', 'organisation',
+  'subscription_event', 'feature_gate_hit', 'invoice', 'organisation', // invoice added with migration 011
 ]) {
   db.exec(`DELETE FROM ${table}`);
 }

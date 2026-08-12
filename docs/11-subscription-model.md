@@ -112,9 +112,26 @@ same auditability as payroll: *"when did we move to Growth, and who authorised i
 
 - Payment gateway integration (bKash / Nagad / card). `plan_status` is currently set by
   seed or admin action, not by a payment webhook.
-- Proration on mid-cycle upgrades.
-- Self-service plan change — today it is an internal operation.
-- Invoice generation.
 
-These are real work, deliberately deferred. The entitlement layer is the part everything
-else depends on, so it is built first.
+**Self-service plan change, proration and invoicing shipped 13 August 2026.** HR can now
+upgrade or downgrade from Plan & billing; `POST /api/subscription/change` applies it
+immediately (`apps/api/src/repo.ts` `changeSubscription`, proration math in
+`packages/core/src/billing.ts`, 5 unit tests). Proration is real: the unused portion of the
+current plan for the rest of the calendar month is credited, the new plan is charged for the
+same days, and an `invoice` row records the net amount (`PAID` for a charge, `CREDITED` for a
+downgrade's credit note) alongside the existing `subscription_event` audit trail. A downgrade
+that would leave more active employees than the new tier's seat limit is refused before it
+applies.
+
+**What's still simulated, not real:** there is no payment gateway, so "payment" always
+succeeds — there is nothing to charge against, and nothing here claims otherwise (the UI
+doesn't show a card form or any payment step). A production build would insert a real
+gateway call between the proration preview and the invoice being marked `PAID`, and would
+need a webhook to handle a card being declined — genuinely deferred, unlike everything else
+in this section.
+
+Verified: `scripts/bughunt.mjs` BUG-23 (6 assertions — preview, confirm, same-tier refusal,
+non-HR role refusal, downgrade credit, invoice history) and a full Playwright pass: upgrade
+Growth→Enterprise, confirm the proration preview and invoice, downgrade back to Growth,
+confirm the credit note. These are real work, deliberately deferred until now — the
+entitlement layer had to exist first, since it's what every other feature checks against.
