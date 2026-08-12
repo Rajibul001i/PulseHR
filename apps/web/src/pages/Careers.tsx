@@ -1,5 +1,6 @@
 import { useEffect, useState, type ChangeEvent, type FormEvent } from 'react';
 import { Link, useParams } from 'react-router-dom';
+import { Logo } from '../components/Logo';
 
 interface PublicVacancy {
   id: string;
@@ -36,12 +37,7 @@ export function CareersList() {
   return (
     <div className="login-wrap">
       <div className="login-card" style={{ maxWidth: 520 }}>
-        <div className="brand" style={{ padding: 0 }}>
-          Pulse<span>HR</span>
-        </div>
-        <div className="brand-sub" style={{ padding: '2px 0 22px' }}>
-          Careers
-        </div>
+        <Logo compact tagline="Careers" />
         <h1>Open positions</h1>
         {error && <p className="error">{error}</p>}
         {vacancies === null && !error && <p className="notice">Loading…</p>}

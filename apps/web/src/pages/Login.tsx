@@ -3,6 +3,7 @@ import { useDispatch } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
 import { post, tokens, type Role } from '../api';
 import { signedIn } from '../store';
+import { Logo } from '../components/Logo';
 
 interface LoginResponse {
   accessToken: string;
@@ -79,12 +80,7 @@ export function Login() {
   return (
     <div className="login-wrap">
       <div className="login-card">
-        <div className="brand" style={{ padding: 0 }}>
-          Pulse<span>HR</span>
-        </div>
-        <div className="brand-sub" style={{ padding: '2px 0 22px' }}>
-          Predictive HR Information System
-        </div>
+        <Logo compact tagline="Predictive HR Information System" />
 
         {mode === 'login' ? (
           <form className="card" onSubmit={submit}>

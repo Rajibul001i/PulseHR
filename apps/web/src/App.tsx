@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { NavLink, Route, Routes, useLocation } from 'react-router-dom';
 import { post, type PlanFeatureKey, type Role, type SubscriptionDto } from './api';
@@ -7,6 +7,7 @@ import { fetchSubscription, TIER_LABEL, trialDaysLeft } from './subscription';
 import { ToastProvider, useToast } from './components/Toast';
 import { CommandPalette } from './components/CommandPalette';
 import { NotificationBell } from './components/NotificationBell';
+import { Logo } from './components/Logo';
 import { Login } from './pages/Login';
 import { ResetPassword } from './pages/ResetPassword';
 import { Dashboard } from './pages/Dashboard';
@@ -44,6 +45,77 @@ function useTheme(): [Theme, () => void] {
   return [theme, () => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))];
 }
 
+type AccentPalette = 'pulse' | 'classic' | 'violet';
+const PALETTES: { key: AccentPalette; label: string; swatch: string }[] = [
+  { key: 'pulse', label: 'Pulse', swatch: '#2dd4bf' },
+  { key: 'classic', label: 'Classic', swatch: '#3b82f6' },
+  { key: 'violet', label: 'Violet', swatch: '#a78bfa' },
+];
+
+/** An axis independent of light/dark mode -- which accent colour the UI uses. Defaults to
+ *  "pulse", the brand-aligned teal, rather than the legacy blue. */
+function usePalette(): [AccentPalette, (p: AccentPalette) => void] {
+  const [palette, setPalette] = useState<AccentPalette>(() => {
+    const saved = localStorage.getItem('pulsehr.palette') as AccentPalette | null;
+    return saved ?? 'pulse';
+  });
+
+  useEffect(() => {
+    document.documentElement.dataset.palette = palette;
+    localStorage.setItem('pulsehr.palette', palette);
+  }, [palette]);
+
+  return [palette, setPalette];
+}
+
+/** Click-outside-to-close via a document listener, not a full-page scrim -- a scrim here
+ *  would sit above the rest of the sidebar (no stacking context at desktop width) and
+ *  swallow the first click on anything else, the same bug fixed on NotificationBell. */
+function PaletteSwitcher({ palette, onChange }: { palette: AccentPalette; onChange: (p: AccentPalette) => void }) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const active = PALETTES.find((p) => p.key === palette) ?? PALETTES[0]!;
+
+  useEffect(() => {
+    if (!open) return;
+    function onDocClick(e: MouseEvent) {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, [open]);
+
+  return (
+    <div className="palette-switcher" ref={wrapRef}>
+      <button
+        className="sm"
+        onClick={() => setOpen((o) => !o)}
+        aria-label={`Accent colour: ${active.label}`}
+        aria-expanded={open}
+      >
+        <span className="palette-swatch" style={{ background: active.swatch }} aria-hidden="true" />
+      </button>
+      {open && (
+        <div className="palette-menu">
+          {PALETTES.map((p) => (
+            <button
+              key={p.key}
+              className={`palette-menu-item${p.key === palette ? ' active' : ''}`}
+              onClick={() => {
+                onChange(p.key);
+                setOpen(false);
+              }}
+            >
+              <span className="palette-swatch" style={{ background: p.swatch }} aria-hidden="true" />
+              {p.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* -------------------------------- nav ----------------------------------- */
 
 interface NavItem {
@@ -72,6 +144,7 @@ function Shell() {
   const toast = useToast();
   const location = useLocation();
   const [theme, toggleTheme] = useTheme();
+  const [palette, setPalette] = usePalette();
   const [sub, setSub] = useState<SubscriptionDto | null>(null);
   const [navOpen, setNavOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -117,10 +190,7 @@ function Shell() {
       />
 
       <aside className={`sidebar no-print ${navOpen ? 'open' : ''}`}>
-        <div className="brand">
-          Pulse<span>HR</span>
-        </div>
-        <div className="brand-sub">Predictive HRIS</div>
+        <Logo tagline="Predictive HRIS" />
 
         <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
           <button className="cmdk-trigger no-print" style={{ marginBottom: 0, flex: 1 }} onClick={() => setPaletteOpen(true)}>
@@ -178,6 +248,7 @@ function Shell() {
             <button className="sm" onClick={toggleTheme} aria-label="Toggle colour theme">
               {theme === 'dark' ? '☀' : '☾'}
             </button>
+            <PaletteSwitcher palette={palette} onChange={setPalette} />
             <button className="sm" onClick={logout}>
               Sign out
             </button>

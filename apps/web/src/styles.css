@@ -13,14 +13,13 @@
   --border: #2a3441;
   --text: #e6edf3;
   --muted: #8b98a9;
-  --accent: #3b82f6;
-  --accent-soft: rgba(59, 130, 246, 0.14);
   --low: #22c55e;
   --moderate: #eab308;
   --elevated: #f97316;
   --high: #ef4444;
   --skeleton: #222c39;
   --shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+  --brand-mint: #5eead4;
 }
 
 :root[data-theme='light'] {
@@ -30,14 +29,45 @@
   --border: #d8dee6;
   --text: #16202b;
   --muted: #5d6b7c;
-  --accent: #1f6feb;
-  --accent-soft: rgba(31, 111, 235, 0.1);
   --low: #15803d;
   --moderate: #a16207;
   --elevated: #c2410c;
   --high: #b91c1c;
   --skeleton: #e6eaef;
   --shadow: 0 8px 24px rgba(16, 32, 48, 0.1);
+  --brand-mint: #0f766e;
+}
+
+/*
+ * Accent palette -- an axis independent of light/dark mode, picked separately (the palette
+ * switcher in the sidebar). "pulse" (teal/mint) is the brand-aligned default; "classic" keeps
+ * the original blue for continuity; "violet" is a third option so "more themes" is genuinely
+ * plural, not just a rename of the existing toggle.
+ */
+:root,
+:root[data-palette='pulse'][data-theme='dark'] {
+  --accent: #2dd4bf;
+  --accent-soft: rgba(45, 212, 191, 0.14);
+}
+:root[data-palette='pulse'][data-theme='light'] {
+  --accent: #0d9488;
+  --accent-soft: rgba(13, 148, 136, 0.12);
+}
+:root[data-palette='classic'][data-theme='dark'] {
+  --accent: #3b82f6;
+  --accent-soft: rgba(59, 130, 246, 0.14);
+}
+:root[data-palette='classic'][data-theme='light'] {
+  --accent: #1f6feb;
+  --accent-soft: rgba(31, 111, 235, 0.1);
+}
+:root[data-palette='violet'][data-theme='dark'] {
+  --accent: #a78bfa;
+  --accent-soft: rgba(167, 139, 250, 0.16);
+}
+:root[data-palette='violet'][data-theme='light'] {
+  --accent: #7c3aed;
+  --accent-soft: rgba(124, 58, 237, 0.1);
 }
 
 :root {
@@ -81,12 +111,15 @@ a { color: var(--accent); text-decoration: none; }
   flex-direction: column;
 }
 
-.brand { font-size: 19px; font-weight: 700; letter-spacing: -0.02em; padding: 0 10px 4px; }
-.brand span { color: var(--accent); }
+.logo-row { display: flex; align-items: center; gap: 9px; padding: 0 10px 4px; }
+.logo-row.compact { padding: 0; }
+.logo-word { font-size: 19px; font-weight: 700; letter-spacing: -0.02em; color: var(--text); }
+.logo-word-accent { color: var(--brand-mint); }
 .brand-sub {
   font-size: 11px; color: var(--muted); padding: 0 10px 16px;
   text-transform: uppercase; letter-spacing: 0.08em;
 }
+.brand-sub.compact { padding: 2px 0 22px; }
 
 .nav a {
   display: flex;
@@ -112,6 +145,26 @@ a { color: var(--accent); text-decoration: none; }
   font-size: 12px; color: var(--muted);
 }
 .row-tight { display: flex; gap: 6px; }
+
+.palette-switcher { position: relative; }
+.palette-swatch {
+  display: inline-block; width: 12px; height: 12px; border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+}
+.palette-menu {
+  position: absolute; bottom: calc(100% + 6px); left: 0; z-index: 91;
+  width: 132px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+  box-shadow: var(--shadow); padding: 4px;
+}
+.palette-menu-item {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  padding: 7px 8px; border: 0; border-radius: 6px;
+  background: transparent; color: var(--text); font: inherit; font-size: 12.5px;
+  text-align: left; cursor: pointer;
+}
+.palette-menu-item:hover { background: var(--surface-2); }
+.palette-menu-item.active { color: var(--accent); font-weight: 650; }
 
 .main { flex: 1; padding: 26px 30px 60px; max-width: 1180px; }
 

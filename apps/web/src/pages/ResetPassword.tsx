@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { post } from '../api';
+import { Logo } from '../components/Logo';
 
 /** F1.4 / US-05 — reached from the link a "forgot password" request issues. */
 export function ResetPassword() {
@@ -37,12 +38,7 @@ export function ResetPassword() {
   return (
     <div className="login-wrap">
       <div className="login-card">
-        <div className="brand" style={{ padding: 0 }}>
-          Pulse<span>HR</span>
-        </div>
-        <div className="brand-sub" style={{ padding: '2px 0 22px' }}>
-          Reset your password
-        </div>
+        <Logo compact tagline="Reset your password" />
 
         {!token ? (
           <div className="card content-in">
