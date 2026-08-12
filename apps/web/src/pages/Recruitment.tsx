@@ -372,7 +372,7 @@ function CandidateDetailPanel({
 
   return (
     <div className="card content-in" style={{ marginTop: 16 }}>
-      <div className="row" style={{ alignItems: 'baseline' }}>
+      <div className="row-tight" style={{ alignItems: 'baseline' }}>
         <strong style={{ flex: 1 }}>{candidate.full_name}</strong>
         <span className="badge LOW">{candidate.stage}</span>
         <button className="sm" onClick={onClose}>

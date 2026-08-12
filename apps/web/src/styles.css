@@ -148,7 +148,12 @@ a { color: var(--accent); text-decoration: none; }
   border-top: 1px solid var(--border);
   font-size: 12px; color: var(--muted);
 }
-.row-tight { display: flex; gap: 6px; }
+/* Unlike .row, children size to their own content -- no forced flex:1/min-width. Use this
+   for header/toolbar rows (a title plus a badge and/or action buttons); .row is for form
+   fields that should share space evenly. Reusing .row for a toolbar was a real bug: short
+   badges and buttons got stretched to a forced 140px, and long button labels wrapped inside
+   a box narrower than their own text. */
+.row-tight { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 
 .palette-switcher { position: relative; }
 .palette-swatch {

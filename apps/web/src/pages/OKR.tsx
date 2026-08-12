@@ -180,9 +180,9 @@ export function OKR({ role }: { role: string }) {
       <p className="page-sub">Quarterly objectives, key results and manager review scores.</p>
 
       <div className="card">
-        <div className="row">
+        <div className="row-tight" style={{ alignItems: 'flex-end' }}>
           {pickableEmployees.length > 0 && (
-            <div>
+            <div style={{ minWidth: 220 }}>
               <label htmlFor="okr-emp-picker">Employee</label>
               <select
                 id="okr-emp-picker"
@@ -200,7 +200,7 @@ export function OKR({ role }: { role: string }) {
               </select>
             </div>
           )}
-          <div>
+          <div style={{ minWidth: 140 }}>
             <label htmlFor="okr-quarter">Quarter</label>
             <input
               id="okr-quarter"
@@ -211,11 +211,9 @@ export function OKR({ role }: { role: string }) {
             />
           </div>
           {role === 'HR_ADMIN' && (
-            <div style={{ flex: 0, alignSelf: 'flex-end' }}>
-              <button type="button" className="sm danger" onClick={closeQuarter}>
-                Close {quarter} org-wide
-              </button>
-            </div>
+            <button type="button" className="sm danger" onClick={closeQuarter}>
+              Close {quarter} org-wide
+            </button>
           )}
         </div>
       </div>
@@ -228,7 +226,7 @@ export function OKR({ role }: { role: string }) {
       ) : (
         objectives.map((o) => (
           <div className="card content-in" key={o.id} style={{ marginBottom: 12 }}>
-            <div className="row" style={{ alignItems: 'baseline' }}>
+            <div className="row-tight" style={{ alignItems: 'baseline' }}>
               <strong style={{ flex: 1 }}>{o.title}</strong>
               <span className="stat-note">weight {o.weight_pct}%</span>
               <span className={`badge ${o.completionPct >= 100 ? 'HIGH' : o.completionPct >= 50 ? 'MODERATE' : 'LOW'}`}>
@@ -309,7 +307,7 @@ export function OKR({ role }: { role: string }) {
                   placeholder="count, %, ..."
                 />
               </div>
-              <div style={{ flex: 0, minWidth: 110, alignSelf: 'flex-end' }}>
+              <div style={{ flex: 0, minWidth: 150, alignSelf: 'flex-end' }}>
                 <button className="primary">Set objective</button>
               </div>
             </div>

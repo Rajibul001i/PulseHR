@@ -124,10 +124,16 @@ export function Notices({ role }: { role: string }) {
           </div>
           <div className="field">
             <label htmlFor="n-body">Body</label>
-            <input id="n-body" value={form.body} onChange={(e) => setForm({ ...form, body: e.target.value })} required />
+            <textarea
+              id="n-body"
+              rows={3}
+              value={form.body}
+              onChange={(e) => setForm({ ...form, body: e.target.value })}
+              required
+            />
           </div>
-          <div className="row">
-            <div>
+          <div className="row-tight" style={{ alignItems: 'flex-end' }}>
+            <div style={{ minWidth: 200 }}>
               <label htmlFor="n-audience">Audience</label>
               <select
                 id="n-audience"
@@ -138,20 +144,16 @@ export function Notices({ role }: { role: string }) {
                 <option value="DEPARTMENTS">Selected departments</option>
               </select>
             </div>
-            <div style={{ flex: 0, alignSelf: 'center' }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 0 }}>
-                <input
-                  type="checkbox"
-                  style={{ width: 'auto' }}
-                  checked={form.isUrgent}
-                  onChange={(e) => setForm({ ...form, isUrgent: e.target.checked })}
-                />
-                Mark urgent (pins to the top)
-              </label>
-            </div>
-            <div style={{ flex: 0, minWidth: 110, alignSelf: 'flex-end' }}>
-              <button className="primary">Publish</button>
-            </div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 9 }}>
+              <input
+                type="checkbox"
+                style={{ width: 'auto' }}
+                checked={form.isUrgent}
+                onChange={(e) => setForm({ ...form, isUrgent: e.target.checked })}
+              />
+              Mark urgent (pins to the top)
+            </label>
+            <button className="primary">Publish</button>
           </div>
           {form.audienceType === 'DEPARTMENTS' && (
             <div style={{ marginTop: 10 }}>
@@ -179,7 +181,7 @@ export function Notices({ role }: { role: string }) {
           style={{ animationDelay: `${Math.min(i, 3) * 30}ms`, cursor: 'pointer' }}
           onClick={() => openNotice(n)}
         >
-          <div className="row" style={{ alignItems: 'baseline' }}>
+          <div className="row-tight" style={{ alignItems: 'baseline' }}>
             <strong style={{ flex: 1 }}>
               {n.is_urgent ? '📌 ' : ''}
               {n.title}
