@@ -90,6 +90,60 @@ all green, typecheck and build clean.
 GitHub Pages `/app/` rebuilt via the `gh-pages` worktree and pushed, each fix verified
 against the actual live URLs, not just local dev.
 
+### 6. Fixed a real layout bug: toolbar buttons/badges force-stretched to 140px
+
+Follow-up feedback after item 4's redesign pass: "the UI still not good and every layout is
+disastrous" — a request to research, act as a senior UI/UX reviewer, and audit the actual
+built product rather than restyle colors again. Root cause, found by screenshotting real
+populated pages (not empty states, which had been masking it): `.row` — a CSS class meant
+for form fields, forcing `flex:1; min-width:140px` on every direct child — was reused for
+header/toolbar rows on the OKR, Recruitment, and Notices pages. Small badges got stretched
+into 140px+ pills; button labels got squeezed narrower than their own text and wrapped
+("Close 2026-Q3 org-wide" broke onto two lines; "Pin urgent" and "Who's read this?" each
+stretched to roughly half a card's width). Fixed by redefining `.row-tight` (toolbar rows)
+to size children to their own content instead of stretching them, auditing all 14 existing
+`className="row"` usages app-wide and switching the 5 genuinely-misused toolbar instances,
+converting Notices' single-line "Body" input to a `<textarea>`, and widening one button's
+explicit min-width. Verified with real data via Playwright across a published notice, an
+OKR objective, and a candidate application. Live demo redeployed.
+
+### 7. Added an explain-only AI assistant to the attrition-risk module
+
+Requested as "include an AI agent in the AI risk module." Before building anything, this
+needed a scope decision — the risk scorecard already carries hard safety constraints
+(HR_ADMIN-only, advisory-only, MANAGER excluded from the whole feature for retaliation
+prevention, review scores deliberately kept out of the model) that an agent able to *take
+action* would conflict with. Confirmed the intended scope explicitly: an HR-admin chat panel
+that explains why a given employee is flagged, grounded only in that score's own
+contribution data — nothing that can act on anything.
+
+Built as a real Claude API integration (`claude-opus-5`, `apps/api/src/aiExplain.ts`), not a
+templated string formatter — the existing scorecard page already shows contributions as a
+table, so a canned paraphrase of the same table would add little. The system prompt restates
+the scorecard's own constraints (advisory-only, no protected-characteristic speculation, why
+review scores are excluded) and the grounding data deliberately omits the employee's `gender`
+column even though the query could trivially join it — that field exists in the schema for
+the quarterly bias audit alone. New route `POST /api/attrition/scores/:id/explain`, gated
+identically to the score-detail route it sits beside (`requireRole('HR_ADMIN')` +
+`requireFeature('attrition_full')`), scoped by `organisation_id` the same way every other
+repo method is. No payment-gateway-style workaround was needed here — there's no billing
+dependency — but there is a real missing-dependency case: this environment (and the free-tier
+Render deploy, until an operator configures one) has no `ANTHROPIC_API_KEY`, so the endpoint
+returns a clear `503` naming the missing variable instead of a crash, and the chat panel
+shows that inline rather than losing the admin's typed question.
+
+**Verified:** `bughunt.mjs` BUG-24 (7 new assertions — role gating, malformed turn-history
+rejection, bogus-id 404, and a cross-tenant check that temporarily lifts a second tenant to
+Enterprise tier first so the 404 provably comes from tenant scoping and not from tier gating)
+and a Playwright pass confirming the chat panel renders and surfaces the 503 notice cleanly.
+Full regression on a clean reseed: 107 unit tests, 24 smoke, 63 bughunt checks (7 new) — all
+green, typecheck and build clean. Full writeup in `docs/13-sqa-defect-report.md` §13.
+
+Next: the load/stress test requested alongside this (high latency, high output, low
+throughput, multiple tenants concurrently, mixed old/recent data, a large active-user count)
+runs against local dev, not the live Render demo — deliberately, to avoid degrading the
+public demo for anyone else viewing it while the test runs.
+
 ---
 
 ## Session 3 — 11 August 2026

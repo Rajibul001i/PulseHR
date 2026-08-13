@@ -17,3 +17,7 @@ services:
         value: 24
       - key: PULSEHR_JWT_SECRET
         generateValue: true
+      # F9 — optional. Without it, POST /attrition/scores/:id/explain returns 503 and the
+      # rest of the app is unaffected; the AI risk-explanation assistant just stays inactive.
+      - key: ANTHROPIC_API_KEY
+        sync: false

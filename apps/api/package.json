@@ -11,6 +11,7 @@
     "job:payroll": "tsx src/jobs/runPayroll.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.116.0",
     "@pulsehr/core": "*",
     "cors": "^2.8.5",
     "express": "^4.21.2",

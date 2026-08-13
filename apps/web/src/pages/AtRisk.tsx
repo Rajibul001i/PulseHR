@@ -1,11 +1,105 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { get, type Contribution } from '../api';
+import { get, post, ApiError, type Contribution } from '../api';
 
 interface ScoreDetail {
   score: { id: string; employee_id: string; score: number; band: string; scored_on: string; engine_version: string };
   contributions: Contribution[];
   responsibleUse: string;
+}
+
+interface ChatTurn {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+/**
+ * F9 — explain-only AI assistant. A chat layer over the same contribution data the table
+ * above renders; it cannot act on anything, only answer questions about this one score.
+ * State lives client-side (the API is stateless per ADR-003 territory) — each send resends
+ * the whole turn history, same shape as the Messages API itself.
+ */
+function RiskAssistant({ scoreId }: { scoreId: string }) {
+  const [turns, setTurns] = useState<ChatTurn[]>([]);
+  const [input, setInput] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  const logRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    logRef.current?.scrollTo({ top: logRef.current.scrollHeight });
+  }, [turns, busy]);
+
+  async function send(e: FormEvent) {
+    e.preventDefault();
+    const question = input.trim();
+    if (!question || busy) return;
+    setNotice(null);
+    const next = [...turns, { role: 'user' as const, content: question }];
+    setTurns(next);
+    setInput('');
+    setBusy(true);
+    try {
+      const { reply } = await post<{ reply: string }>(`/attrition/scores/${scoreId}/explain`, { turns: next });
+      setTurns((t) => [...t, { role: 'assistant', content: reply }]);
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 503) {
+        setNotice(err.message);
+      } else {
+        setNotice((err as Error).message || 'The assistant could not answer that. Try again.');
+      }
+      setTurns((t) => t.slice(0, -1));
+      setInput(question);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="card" style={{ marginTop: 18 }}>
+      <div className="stat-label">Ask about this score</div>
+      <p className="stat-note" style={{ marginTop: 4 }}>
+        HR-only. Explains the factors above in plain language — it can't take any action, and every answer is
+        advisory only.
+      </p>
+
+      {turns.length > 0 && (
+        <div
+          ref={logRef}
+          style={{ maxHeight: 260, overflowY: 'auto', marginTop: 10, marginBottom: 10, display: 'grid', gap: 8 }}
+        >
+          {turns.map((t, i) => (
+            <div
+              key={i}
+              className={t.role === 'user' ? 'chat-bubble chat-bubble-user' : 'chat-bubble chat-bubble-assistant'}
+            >
+              {t.content}
+            </div>
+          ))}
+          {busy && <div className="chat-bubble chat-bubble-assistant chat-bubble-pending">Thinking…</div>}
+        </div>
+      )}
+
+      {notice && (
+        <p className="stat-note" style={{ color: 'var(--high)', marginBottom: 8 }}>
+          {notice}
+        </p>
+      )}
+
+      <form onSubmit={send} className="row-tight">
+        <input
+          style={{ flex: 1, minWidth: 220 }}
+          placeholder="e.g. Why is lateness weighted so heavily here?"
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          disabled={busy}
+        />
+        <button className="primary" disabled={busy || !input.trim()}>
+          {busy ? 'Asking…' : 'Ask'}
+        </button>
+      </form>
+    </div>
+  );
 }
 
 /**
@@ -107,6 +201,8 @@ export function AtRisk() {
         identifies reviews as the artifact most affected by favouritism — feeding them in would
         launder that bias into an output that looks objective.
       </p>
+
+      <RiskAssistant scoreId={data.score.id} />
     </div>
   );
 }

@@ -557,3 +557,61 @@ experience than not showing them, since nothing told the user why.
 - **Re-verified:** `bughunt.mjs` BUG-23 (6 assertions) and a full Playwright pass —
   upgrade Growth→Enterprise, check the proration preview and resulting invoice, downgrade
   back to Growth, check the credit note.
+
+## 13. Addendum — 13 August 2026 — AI risk-explanation assistant
+
+Also not one of the 43 F1–F9 functions — this is a new capability layered on top of the
+existing F9 Attrition Risk scorecard (§6 above), not a change to F9 itself. F9's function
+count and the scorecard's own logic (`packages/core/src/attrition.ts`) are unchanged.
+
+**Scope, decided explicitly before building:** the request was to "include an AI agent" in
+the risk module. The scorecard already carries hard safety constraints — HR_ADMIN-only,
+advisory-only framing, MANAGER excluded from the at-risk list entirely (retaliation
+prevention), review scores deliberately kept out of the model (§6) — and an agent that could
+*act* (send messages, edit records, recommend a decision) would conflict with every one of
+them. Clarified with the requester and built as an **explain-only assistant**: an HR-admin
+chat panel on the score-detail page that answers questions about one score, grounded only in
+that score's own contribution data. It cannot take any action of any kind.
+
+- **What it is:** `POST /api/attrition/scores/:id/explain` (`apps/api/src/aiExplain.ts`),
+  calling the real Claude API (`claude-opus-5`) with a system prompt that restates the
+  scorecard's own constraints — advisory-only, no protected-characteristic speculation, no
+  review scores, explains but never recommends termination/pay/promotion action — plus the
+  score's contributions (`Repo.scoreExplainContext`, `apps/api/src/repo.ts`) as grounding.
+  Frontend: a chat panel on `AtRisk.tsx`, state kept client-side (this API has no
+  server-side chat session store), each send resends the full turn history.
+- **Same gates as the score-detail route it sits beside:** `requireRole('HR_ADMIN')` +
+  `requireFeature('attrition_full')`, and `scoreExplainContext` scopes by `organisation_id`
+  the same way every other repo method does (P0-5) — verified with a real cross-tenant call,
+  not just code review (see BUG-24 below).
+- **Deliberately excluded from the grounding data:** the employee's `gender` column, even
+  though the query could trivially join it. That field exists in the schema for exactly one
+  purpose — the quarterly bias audit (§9's note on `05-attrition-risk-spec.md`) — and handing
+  it to a model as "context" is precisely the kind of scope creep this report has flagged
+  elsewhere (§6's F6.3/F9.1 conflict). The system prompt separately instructs the model not
+  to speculate about protected characteristics even if the admin raises them, as defense in
+  depth beyond simply not being given the data.
+- **Fails clearly, not silently:** no Anthropic API key is configured on the dev/CI
+  environment (or the free-tier Render deploy, until the operator adds one) — this is a
+  student demo, not a funded deployment. The endpoint returns `503` with a plain-English
+  message naming the missing environment variable, not a 500 or a hung request. The frontend
+  renders that message inline in the chat panel rather than a toast, and keeps the admin's
+  typed question in the input box instead of discarding it on failure.
+
+### BUG-24 — Severity: N/A · not a defect, a coverage note
+
+No defect was found — recorded here because the review process this report follows is to
+verify claims against behavior, not to only write up failures. 7 adversarial checks added to
+`bughunt.mjs`: role gating (MANAGER and EMPLOYEE both refused, matching the at-risk list's
+own gate), malformed turn history rejected (empty array, and a history not ending on a user
+turn), a bogus score id is a 404 not a crash, and — the one that actually exercises new
+code — **a cross-tenant request is a 404, verified by temporarily lifting Bengal Logistics
+to Enterprise tier first** so the 404 provably comes from `organisation_id` scoping and not
+from tier-gating (which BUG-17 already covers separately). The last check branches on
+whichever of the two legitimate outcomes the environment actually produces (503 unconfigured,
+or 200 with a real answer) rather than assuming no key is present, so it stays meaningful if
+this ever runs somewhere `ANTHROPIC_API_KEY` is set.
+
+- **Re-verified:** `bughunt.mjs` BUG-24 (7 assertions, all passing) and a Playwright pass
+  confirming the chat panel renders, accepts input, and surfaces the 503 notice cleanly
+  in the panel itself rather than breaking the page.

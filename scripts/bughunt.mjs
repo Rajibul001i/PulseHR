@@ -861,6 +861,115 @@ console.log('\nSelf-service billing (docs/11-subscription-model.md §8)');
 }
 
 /* ---------------------------------------------------------------------- */
+console.log('\nAI risk-explanation assistant (F9, explain-only)');
+
+// Same role + feature gate as /attrition/scores/:id, plus its own constraints: it must
+// never answer for another tenant's score, and it must degrade cleanly (not 500) when no
+// ANTHROPIC_API_KEY is configured, since most dev/CI environments will not have one.
+{
+  const atRiskHr = await call('/attrition/at-risk?limit=5', { token: hrA.accessToken });
+
+  if (!atRiskHr.body?.length) {
+    console.log('  skip  BUG-24  no attrition scores exist yet (run `npm run job:score` first) — skipping');
+  } else {
+    const scoreId = atRiskHr.body[0].id;
+    const askBody = { turns: [{ role: 'user', content: 'Why is this employee flagged?' }] };
+
+    const asMgr = await call(`/attrition/scores/${scoreId}/explain`, {
+      method: 'POST',
+      token: mgr.accessToken,
+      body: askBody,
+    });
+    expect(
+      'BUG-24',
+      'F9 · AI assistant',
+      'A MANAGER is refused the explain endpoint (same retaliation-risk gate as the score itself)',
+      asMgr.status === 403,
+      `got ${asMgr.status}`,
+    );
+
+    const asEmp = await call(`/attrition/scores/${scoreId}/explain`, {
+      method: 'POST',
+      token: emp.accessToken,
+      body: askBody,
+    });
+    expect('BUG-24', 'F9 · AI assistant', 'An EMPLOYEE is refused the explain endpoint', asEmp.status === 403, `got ${asEmp.status}`);
+
+    const badShape = await call(`/attrition/scores/${scoreId}/explain`, {
+      method: 'POST',
+      token: hrA.accessToken,
+      body: { turns: [{ role: 'assistant', content: 'not how this starts' }] },
+    });
+    expect(
+      'BUG-24',
+      'F9 · AI assistant',
+      "A turn history that doesn't end on the user is rejected, not silently accepted",
+      badShape.status === 400,
+      `got ${badShape.status}`,
+    );
+
+    const emptyTurns = await call(`/attrition/scores/${scoreId}/explain`, {
+      method: 'POST',
+      token: hrA.accessToken,
+      body: { turns: [] },
+    });
+    expect('BUG-24', 'F9 · AI assistant', 'An empty turn list is rejected', emptyTurns.status === 400, `got ${emptyTurns.status}`);
+
+    const notFound = await call('/attrition/scores/does-not-exist/explain', {
+      method: 'POST',
+      token: hrA.accessToken,
+      body: askBody,
+    });
+    expect('BUG-24', 'F9 · AI assistant', 'A bogus score id is a 404, not a crash', notFound.status === 404, `got ${notFound.status}`);
+
+    // Cross-tenant: temporarily lift Bengal to ENTERPRISE so a 404 here proves org-scoping,
+    // not tier-gating (BUG-17 already covers tier-gating on its own). Restored to GROWTH
+    // before this block ends, matching the discipline the billing block above already uses.
+    await call('/subscription/change', { method: 'POST', token: hrB.accessToken, body: { tier: 'ENTERPRISE' } });
+    const crossTenant = await call(`/attrition/scores/${scoreId}/explain`, {
+      method: 'POST',
+      token: hrB.accessToken,
+      body: askBody,
+    });
+    expect(
+      'BUG-24',
+      'F9 · AI assistant',
+      "One tenant's HR admin cannot ask about another tenant's score, even with matching entitlements",
+      crossTenant.status === 404,
+      `got ${crossTenant.status}`,
+    );
+    await call('/subscription/change', { method: 'POST', token: hrB.accessToken, body: { tier: 'GROWTH' } });
+
+    // The environment running this script almost certainly has no ANTHROPIC_API_KEY set
+    // (this is a student demo, not a funded deployment) — assert whichever of the two
+    // legitimate outcomes actually happened, so the check is meaningful either way instead
+    // of being hard-coded to the common case.
+    const ask = await call(`/attrition/scores/${scoreId}/explain`, {
+      method: 'POST',
+      token: hrA.accessToken,
+      body: askBody,
+    });
+    if (ask.status === 503) {
+      expect(
+        'BUG-24',
+        'F9 · AI assistant',
+        'With no API key configured, the assistant fails clearly (503) instead of crashing (500)',
+        typeof ask.body?.error === 'string' && ask.body.error.includes('ANTHROPIC_API_KEY'),
+        `status ${ask.status}, body ${JSON.stringify(ask.body)}`,
+      );
+    } else {
+      expect(
+        'BUG-24',
+        'F9 · AI assistant',
+        'With an API key configured, a question about the score gets a real, non-empty answer',
+        ask.status === 200 && typeof ask.body?.reply === 'string' && ask.body.reply.trim().length > 0,
+        `status ${ask.status}, body ${JSON.stringify(ask.body)}`,
+      );
+    }
+  }
+}
+
+/* ---------------------------------------------------------------------- */
 console.log(`\n${checks} checks, ${findings.length} defects found\n`);
 for (const f of findings) {
   console.log(`${f.id}  (${f.story})  ${f.description}`);
