@@ -104,6 +104,25 @@ console.log('F1 · Authentication & Role Management');
   );
 }
 
+// BUG-25 (load-test finding, docs/17-load-test-report.md): the original rate limiter
+// incremented its counter on every login CALL, not every FAILURE, so several concurrent
+// requests for the same email with the CORRECT password could trip a 429 before any of them
+// finished and cleared it -- a race the sequential BUG-03 test above can't see. Fire 10
+// concurrent correct-password logins for one account and confirm none of them are refused.
+{
+  const concurrentLogins = await Promise.all(
+    Array.from({ length: 10 }, () => login('hr@dhakacraft.test')),
+  );
+  const statuses = concurrentLogins.map((r) => r.status);
+  expect(
+    'BUG-25',
+    'US-02',
+    '10 concurrent logins with the correct password never trip the failed-attempt lockout',
+    statuses.every((s) => s === 200),
+    `statuses: ${JSON.stringify(statuses)}`,
+  );
+}
+
 // US-05: password reset. Acceptance criteria: a reset link/token only for a registered
 // address, expires in 30 minutes, single-use. Exercised as a black box, the same path the
 // frontend takes (no direct DB access) -- the demoResetToken field is this prototype's

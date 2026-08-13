@@ -139,10 +139,45 @@ and a Playwright pass confirming the chat panel renders and surfaces the 503 not
 Full regression on a clean reseed: 107 unit tests, 24 smoke, 63 bughunt checks (7 new) — all
 green, typecheck and build clean. Full writeup in `docs/13-sqa-defect-report.md` §13.
 
-Next: the load/stress test requested alongside this (high latency, high output, low
-throughput, multiple tenants concurrently, mixed old/recent data, a large active-user count)
-runs against local dev, not the live Render demo — deliberately, to avoid degrading the
-public demo for anyone else viewing it while the test runs.
+### 8. Load/stress test — found and fixed two real concurrency bugs
+
+Requested alongside item 7: high latency, high output, low throughput, heavy server
+pressure, multiple companies working concurrently, a mix of old and recently revised data,
+and a huge active-user count. Ran entirely against local dev, deliberately not the live
+Render demo — a stress test's job is to find where a system breaks, and doing that to a
+public URL other people might be viewing is the wrong place to do it. New script,
+`scripts/loadtest.mjs` (plain Node `fetch`, no new dependency): five phases, each isolating
+one part of the requested scenario — multi-tenant read storm, PDF-generation output stress,
+mixed read/write against old-seeded + freshly-written data, a login storm, and everything
+combined and sustained — at 150 concurrent simulated users per phase.
+
+It found two real bugs, not in this project's business logic (the existing 63-check
+adversarial suite already covers that), but in how the server behaves under concurrency,
+which nothing before this had exercised:
+
+1. **`hashPassword`/`verifyPassword` used `scryptSync`** (`apps/api/src/auth.ts`) — runs on
+   Node's single main thread and blocks it for the full hash duration. Under concurrent
+   login load, every *other* request in flight, including unrelated tenants' reads, queued
+   behind whatever password hash happened to be running at the time: p99 latency across the
+   whole server hit 14.9 seconds, and 85 requests failed outright with connection resets.
+   Fixed by switching to the async `scrypt` (same algorithm, same cost, same security
+   property — only the thread it runs on changed), which needed this API's first-ever
+   genuinely asynchronous route handler (`asyncHandler`, alongside the existing sync
+   `handler`).
+2. **The login rate limiter counted every attempt, not every failure** — invisible
+   sequentially (which is all the existing BUG-03 test checked), but once the scrypt fix let
+   far more concurrent logins for the same account genuinely overlap, up to 982 of them in
+   one 15-second window came back `429` with the **correct** password. Fixed by splitting
+   the limiter into a read-only lockout check and an explicit "record a failure" call, so a
+   successful login — however many arrive at once — never touches the counter.
+
+**Verified:** full regression after each fix (107 unit, 30 smoke, 64 bughunt — 1 new check,
+BUG-25, firing 10 concurrent correct-password logins and asserting zero 429s) on a clean
+reseed+restart each time, then re-ran the load test itself: **16,859 requests across the
+final run, zero genuine errors**, down from 85 failures and a 14.9s worst-case p99 before the
+fixes. Full writeup, including why login latency itself didn't drop (it isn't supposed to —
+see the report for why that's the correct outcome, not an unfixed bug) and what this local
+single-process test does and doesn't prove: `docs/17-load-test-report.md`.
 
 ---
 

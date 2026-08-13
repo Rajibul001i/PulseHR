@@ -615,3 +615,34 @@ this ever runs somewhere `ANTHROPIC_API_KEY` is set.
 - **Re-verified:** `bughunt.mjs` BUG-24 (7 assertions, all passing) and a Playwright pass
   confirming the chat panel renders, accepts input, and surfaces the 503 notice cleanly
   in the panel itself rather than breaking the page.
+
+## 14. Addendum — 13 August 2026 — load/stress test found two real concurrency defects
+
+Full report: [`17-load-test-report.md`](17-load-test-report.md). Summarized here because
+this is exactly the class of defect this report exists to catch — a gap between what the
+system claims to do and what it actually does — even though neither bug was found by the
+adversarial black-box suite this report otherwise tracks. Both are in the authentication
+path (`apps/api/src/auth.ts`), not in F1–F9's business logic, and neither was visible to any
+test that doesn't apply concurrent load.
+
+### BUG-25a — Severity: High · `scryptSync` blocked the event loop for every in-flight request
+
+Password hashing (`hashPassword`/`verifyPassword`, NFR-15's `N=16384` scrypt cost) ran
+synchronously on Node's single main thread. Under concurrent login load, every other
+request — including unrelated tenants' reads — queued behind whatever hash happened to be
+running: server-wide p99 latency reached 14.9s, with 85 requests failing outright. Fixed by
+switching to the async `scrypt` (same algorithm, same cost, same security property — only
+the thread changed), which required this API's first genuinely async route handler.
+
+### BUG-25b — Severity: Medium · concurrent correct-password logins could trip the lockout
+
+The login rate limiter (BUG-03's fix, §3) incremented its counter on every login *call*, not
+every *failure*, and only cleared it on success — invisible to BUG-03's sequential test, but
+under concurrency, several simultaneous correct-password logins for one account could each
+increment the counter before any of them finished and cleared it. Fixed by splitting into a
+read-only lockout check and an explicit failure-recording step; BUG-03's original sequential
+test is unchanged and still passes.
+
+**Re-verified:** full regression after each fix (107 unit, 30 smoke, 64 bughunt — including
+new check BUG-25) on a clean reseed+restart, then the load test itself re-run: 16,859
+requests, zero genuine errors, down from 85 failures beforehand.

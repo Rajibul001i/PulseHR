@@ -36,6 +36,12 @@ function rng(seed: number): () => number {
 const TODAY = businessDate(new Date());
 const HISTORY_DAYS = 180;
 
+// hashPassword is async now (load-test finding, docs/17-load-test-report.md -- scrypt must
+// not block the live server's event loop). Every seeded account uses this one literal demo
+// password, so it's hashed once here rather than threading async through every call site in
+// seedOrganisation -- this is throwaway demo data, not a live auth path.
+const DEMO_PASSWORD_HASH = await hashPassword('Passw0rd!');
+
 interface Profile {
   name: string;
   designation: string;
@@ -125,7 +131,7 @@ function seedOrganisation(opts: {
     hrUserId,
     orgId,
     `hr@${opts.emailDomain}`,
-    hashPassword('Passw0rd!'),
+    DEMO_PASSWORD_HASH,
     nowIso(),
   );
 
@@ -144,7 +150,7 @@ function seedOrganisation(opts: {
       userId,
       orgId,
       `${emailLocal}@${opts.emailDomain}`,
-      hashPassword('Passw0rd!'),
+      DEMO_PASSWORD_HASH,
       isManager ? 'MANAGER' : 'EMPLOYEE',
       nowIso(),
     );

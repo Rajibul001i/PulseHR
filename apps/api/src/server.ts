@@ -27,7 +27,8 @@ import {
 import { openDb, one, run, transaction } from './db.js';
 import {
   authenticate,
-  checkLoginRateLimit,
+  isLockedOut,
+  recordFailedLogin,
   clearLoginRateLimit,
   consumePasswordResetToken,
   consumeRefreshToken,
@@ -92,12 +93,12 @@ const asyncHandler =
 
 app.post(
   '/api/auth/login',
-  handler((req, res) => {
+  asyncHandler(async (req, res) => {
     const { email, password } = z
       .object({ email: z.string().email(), password: z.string().min(1) })
       .parse(req.body);
 
-    if (!checkLoginRateLimit(email)) {
+    if (isLockedOut(email)) {
       res.status(429).json({ error: 'Too many attempts. Try again in 15 minutes.' });
       return;
     }
@@ -110,7 +111,8 @@ app.post(
     );
 
     // Same response for unknown user and wrong password — do not confirm which emails exist.
-    if (!user || !user.is_active || !verifyPassword(password, String(user.password_hash))) {
+    if (!user || !user.is_active || !(await verifyPassword(password, String(user.password_hash)))) {
+      recordFailedLogin(email);
       res.status(401).json({ error: 'Invalid credentials' });
       return;
     }
@@ -181,7 +183,7 @@ app.post(
 
 app.post(
   '/api/auth/reset-password',
-  handler((req, res) => {
+  asyncHandler(async (req, res) => {
     const { token, password } = z
       .object({ token: z.string().min(1), password: z.string().min(8) })
       .parse(req.body);
@@ -192,7 +194,7 @@ app.post(
       return;
     }
 
-    run('UPDATE app_user SET password_hash = ? WHERE id = ?', hashPassword(password), userId);
+    run('UPDATE app_user SET password_hash = ? WHERE id = ?', await hashPassword(password), userId);
     // A password reset must kill every existing session — the old password may be
     // compromised, which is presumably why a reset was requested at all.
     revokeAllSessions(userId);

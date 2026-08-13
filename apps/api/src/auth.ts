@@ -9,7 +9,8 @@
  * So: 15-minute access token + a server-side refresh session row that can be killed.
  */
 
-import { randomBytes, scryptSync, timingSafeEqual, createHash } from 'node:crypto';
+import { randomBytes, scrypt as scryptCb, timingSafeEqual, createHash } from 'node:crypto';
+import { promisify } from 'node:util';
 import jwt from 'jsonwebtoken';
 import type { NextFunction, Request, Response } from 'express';
 import { all, nowIso, one, run, uuid } from './db.js';
@@ -37,18 +38,34 @@ declare global {
   }
 }
 
+/*
+ * scrypt, not scryptSync (load-test finding, 13 Aug 2026 — docs/17-load-test-report.md).
+ * scryptSync runs on the main thread and blocks the event loop for its whole duration; under
+ * concurrent logins that serialised EVERY request in flight behind whatever hash happened to
+ * be running, not just other logins. The async form offloads the same computation to libuv's
+ * threadpool -- same N (NFR-15), same cost per hash, same security property. This does not
+ * make login itself faster (scrypt is deliberately slow; that is the point of it) -- it stops
+ * login load from stalling unrelated requests on other tenants while it runs.
+ */
+const scrypt = promisify(scryptCb) as (
+  password: string,
+  salt: Buffer,
+  keylen: number,
+  options: { N: number },
+) => Promise<Buffer>;
+
 /* ------------------------------- passwords ------------------------------- */
 
-export function hashPassword(plain: string): string {
+export async function hashPassword(plain: string): Promise<string> {
   const salt = randomBytes(16);
-  const key = scryptSync(plain, salt, 64, { N: SCRYPT_N });
+  const key = await scrypt(plain, salt, 64, { N: SCRYPT_N });
   return `${salt.toString('hex')}:${key.toString('hex')}`;
 }
 
-export function verifyPassword(plain: string, stored: string): boolean {
+export async function verifyPassword(plain: string, stored: string): Promise<boolean> {
   const [saltHex, keyHex] = stored.split(':');
   if (!saltHex || !keyHex) return false;
-  const key = scryptSync(plain, Buffer.from(saltHex, 'hex'), 64, { N: SCRYPT_N });
+  const key = await scrypt(plain, Buffer.from(saltHex, 'hex'), 64, { N: SCRYPT_N });
   const expected = Buffer.from(keyHex, 'hex');
   // Constant-time: a length mismatch must not short-circuit into a timing oracle.
   if (key.length !== expected.length) return false;
@@ -202,19 +219,36 @@ const attempts = new Map<string, { count: number; resetAt: number }>();
  * BUG-03 / US-02: "Six consecutive failed attempts lock the account for a cool-down
  * period." Six failures are therefore permitted and the SEVENTH is refused. The previous
  * value of 5 locked one attempt early, failing the story's acceptance criterion.
+ *
+ * BUG-25 (load-test finding, docs/17-load-test-report.md): the original single
+ * check-and-increment function counted every login CALL, not every FAILURE — so several
+ * concurrent requests for the same email with the CORRECT password could each increment the
+ * counter before any of them finished and cleared it, tripping a 429 with zero wrong
+ * passwords involved. Split into a read-only lockout check (`isLockedOut`) and an explicit
+ * `recordFailedLogin`, called only on an actual bad password — a successful login, however
+ * many arrive concurrently, never touches the counter at all.
  */
 const MAX_ATTEMPTS = 6;
 const WINDOW_MS = 15 * 60_000;
 
-export function checkLoginRateLimit(email: string): boolean {
+export function isLockedOut(email: string): boolean {
+  const entry = attempts.get(email);
+  if (!entry) return false;
+  if (Date.now() > entry.resetAt) {
+    attempts.delete(email);
+    return false;
+  }
+  return entry.count >= MAX_ATTEMPTS;
+}
+
+export function recordFailedLogin(email: string): void {
   const now = Date.now();
   const entry = attempts.get(email);
   if (!entry || now > entry.resetAt) {
     attempts.set(email, { count: 1, resetAt: now + WINDOW_MS });
-    return true;
+    return;
   }
   entry.count += 1;
-  return entry.count <= MAX_ATTEMPTS;
 }
 
 export function clearLoginRateLimit(email: string): void {
