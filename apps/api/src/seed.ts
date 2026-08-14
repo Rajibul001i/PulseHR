@@ -18,7 +18,7 @@ import {
   isWorkingDay,
   taka,
 } from '@pulsehr/core';
-import { getDb, nowIso, openDb, run, uuid } from './db.js';
+import { getDb, nowIso, one, openDb, run, uuid } from './db.js';
 import { hashPassword } from './auth.js';
 
 /** Deterministic PRNG (mulberry32) — a seeded demo must be reproducible. */
@@ -405,5 +405,58 @@ seedOrganisation({
   profiles: PROFILES.slice(0, 4).map((p) => ({ ...p, name: `${p.name} (DC)` })),
   seed: 550011,
 });
+
+/**
+ * F7.1 — a couple of published vacancies per org so the public careers page (redesigned
+ * 13 Aug 2026) has something real to demo, not just its own empty state. ATS requires the
+ * `ats` feature (GROWTH+), so Dhaka Craft (STARTER) is deliberately left with none — its
+ * careers page legitimately has nothing to show, which is itself worth seeing.
+ */
+function seedVacancy(hrEmail: string, title: string, requirements: string, deadlineDays: number): void {
+  const hr = one('SELECT id, organisation_id FROM app_user WHERE email = ?', hrEmail);
+  if (!hr) return;
+  run(
+    `INSERT INTO vacancy (id, organisation_id, title, requirements, deadline, status, created_by, created_at)
+     VALUES (?, ?, ?, ?, ?, 'PUBLISHED', ?, ?)`,
+    uuid(),
+    hr.organisation_id,
+    title,
+    requirements,
+    addDays(TODAY, deadlineDays),
+    hr.id,
+    nowIso(),
+  );
+}
+
+seedVacancy(
+  'hr@meridian.test',
+  'Senior Backend Engineer',
+  '5+ years designing distributed systems in Node.js or Go. Comfortable owning a service end to end, from schema design through on-call. You will work closely with our data and platform teams to keep the core HR engine fast under real payroll load.',
+  35,
+);
+seedVacancy(
+  'hr@meridian.test',
+  'QA Automation Engineer',
+  "Own the adversarial test suite. Experience with black-box API testing, CI pipelines, and a healthy suspicion of your own team's claims about what already works.",
+  4,
+);
+seedVacancy(
+  'hr@meridian.test',
+  'Merchandising Coordinator',
+  'Coordinate sample approvals and order timelines between our design team and export buyers. Strong spreadsheet skills and comfort chasing down a slipping deadline across three time zones.',
+  16,
+);
+seedVacancy(
+  'hr@bengal.test',
+  'Logistics Coordinator',
+  'Coordinate shipment schedules across our export partners. Comfortable with spreadsheets, tight deadlines, and talking to freight forwarders daily.',
+  9,
+);
+seedVacancy(
+  'hr@bengal.test',
+  'Fleet Operations Analyst',
+  'Track fleet utilisation and turnaround times across our regional routes, and turn that into a weekly report leadership actually reads. SQL literacy expected.',
+  27,
+);
 
 console.log('[seed] done.');
