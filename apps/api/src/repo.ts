@@ -1262,12 +1262,25 @@ export class Repo {
  * comes explicitly from the URL, same as any other public multi-tenant careers page.
  */
 
+/**
+ * The careers page needs to identify the employer even when it has zero open positions
+ * right now (a shared link outliving its vacancy, or a candidate checking early) --
+ * deriving the name from the first vacancy row leaves the page stuck showing nothing to
+ * identify the company by in exactly that case.
+ */
+export function publicOrganisationName(orgId: string): string | undefined {
+  const row = one('SELECT name FROM organisation WHERE id = ?', orgId);
+  return row ? String(row.name) : undefined;
+}
+
 export function publicVacancies(orgId: string): Row[] {
   const today = nowIso().slice(0, 10);
   return all(
-    `SELECT id, title, requirements, deadline FROM vacancy
-      WHERE organisation_id = ? AND status = 'PUBLISHED' AND deadline >= ?
-      ORDER BY created_at DESC`,
+    `SELECT v.id, v.title, v.requirements, v.deadline, o.name AS organisation_name
+       FROM vacancy v
+       JOIN organisation o ON o.id = v.organisation_id
+      WHERE v.organisation_id = ? AND v.status = 'PUBLISHED' AND v.deadline >= ?
+      ORDER BY v.created_at DESC`,
     orgId,
     today,
   );
@@ -1275,8 +1288,10 @@ export function publicVacancies(orgId: string): Row[] {
 
 export function publicVacancy(orgId: string, vacancyId: string): Row | undefined {
   return one(
-    `SELECT id, title, requirements, deadline FROM vacancy
-      WHERE id = ? AND organisation_id = ? AND status = 'PUBLISHED'`,
+    `SELECT v.id, v.title, v.requirements, v.deadline, o.name AS organisation_name
+       FROM vacancy v
+       JOIN organisation o ON o.id = v.organisation_id
+      WHERE v.id = ? AND v.organisation_id = ? AND v.status = 'PUBLISHED'`,
     vacancyId,
     orgId,
   );

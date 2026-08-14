@@ -179,6 +179,33 @@ fixes. Full writeup, including why login latency itself didn't drop (it isn't su
 see the report for why that's the correct outcome, not an unfixed bug) and what this local
 single-process test does and doesn't prove: `docs/17-load-test-report.md`.
 
+### 9. Redesigned the public careers pages
+
+The public job-listing and application pages (`/careers/:orgId`) had never had a real design
+pass — they reused the login-card shell verbatim, and didn't even show which company was
+hiring. Rebuilt from the brief up: the page's own subject (Bangladeshi operating companies —
+textiles, logistics, apparel export — hiring corporate/technical staff) grounds the direction,
+extended from the existing PulseHR mark rather than a disconnected new one. The signature
+idea is literal: the logo's heartbeat motif becomes an actual ECG-style waveform across the
+header, with one spike per open role, spike height driven by real deadline urgency — not
+decoration. Vacancy rows read as manifest/docket entries; the application form numbers its
+fields the way a real document would; the confirmation screen gives the reference code a
+stamped-document treatment. Typography (Space Grotesk display, IBM Plex Sans/Mono) and a
+fixed teal/mint/coral palette drawn from the logo's own colors are loaded only on this page,
+so the authenticated dashboard's payload is untouched.
+
+Building this against real data (not mockups) surfaced a real bug before it shipped: the org
+name was derived from the first vacancy in the list, so a company with zero open positions —
+the exact scenario a candidate hits on a stale shared link — showed "Loading…" forever
+instead of identifying the employer. Fixed with a small dedicated endpoint
+(`GET /api/public/organisations/:id`) fetched independently of the vacancy list, and the
+vacancy queries now actually return the employer's name at all (they never did before).
+
+**Verified:** full regression (107 unit, 20 smoke, 57 bughunt — including all BUG-14
+recruitment/ATS checks) on a clean reseed, plus Playwright screenshots at desktop and mobile
+widths across the list, detail/apply, empty, and confirmation states — the empty-state pass
+is what caught the "Loading…" bug above.
+
 ---
 
 ## Session 3 — 11 August 2026

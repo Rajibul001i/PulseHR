@@ -41,7 +41,7 @@ import {
   verifyPassword,
   type Principal,
 } from './auth.js';
-import { Repo, publicVacancies, publicVacancy, submitApplication } from './repo.js';
+import { Repo, publicVacancies, publicVacancy, publicOrganisationName, submitApplication } from './repo.js';
 import { enqueue, jobStatus } from './jobs/queue.js';
 // Side-effecting imports: each module calls registerHandler() at load time. Without these,
 // PAYROLL_RUN and ATTRITION_SCORING jobs enqueue successfully and then fail immediately
@@ -1421,6 +1421,18 @@ app.post(
  * middleware above (paths starting with /public/). Tenant comes from the URL, the way any
  * public multi-tenant careers page has to identify which company's board it's showing.
  */
+
+app.get(
+  '/api/public/organisations/:id',
+  handler((req, res) => {
+    const name = publicOrganisationName(req.params.id!);
+    if (!name) {
+      res.status(404).json({ error: 'Not found' });
+      return;
+    }
+    res.json({ name });
+  }),
+);
 
 app.get(
   '/api/public/vacancies',
