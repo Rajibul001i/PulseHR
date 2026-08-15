@@ -196,28 +196,6 @@ a { color: var(--accent); text-decoration: none; }
 }
 .scrim.open { opacity: 1; pointer-events: auto; }
 
-/* --------------------------- command palette trigger --------------------- */
-
-.cmdk-trigger {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin: 0 0 14px;
-  padding: 7px 10px;
-  font-size: 13px;
-  color: var(--muted);
-  text-align: left;
-}
-.cmdk-trigger kbd {
-  font: 11px ui-sans-serif, system-ui, sans-serif;
-  color: var(--muted);
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 5px;
-  padding: 2px 6px;
-}
-
 /* ------------------------------ plan chip ------------------------------- */
 
 .plan-chip {

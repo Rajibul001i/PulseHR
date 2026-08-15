@@ -5,7 +5,6 @@ import { post, type PlanFeatureKey, type Role, type SubscriptionDto } from './ap
 import { signedOut, type RootState } from './store';
 import { fetchSubscription, TIER_LABEL, trialDaysLeft } from './subscription';
 import { ToastProvider, useToast } from './components/Toast';
-import { CommandPalette } from './components/CommandPalette';
 import { NotificationBell } from './components/NotificationBell';
 import { Logo } from './components/Logo';
 import { Login } from './pages/Login';
@@ -21,8 +20,6 @@ import { OKR } from './pages/OKR';
 import { Recruitment } from './pages/Recruitment';
 import { CareersList, CareersApply } from './pages/Careers';
 import { Notices } from './pages/Notices';
-
-const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
 
 /* ------------------------------- theme ---------------------------------- */
 
@@ -191,7 +188,6 @@ function Shell() {
   const [palette, setPalette] = usePalette();
   const [sub, setSub] = useState<SubscriptionDto | null>(null);
   const [navOpen, setNavOpen] = useState(false);
-  const [paletteOpen, setPaletteOpen] = useState(false);
 
   const role = (auth.role ?? 'EMPLOYEE') as Role;
 
@@ -236,11 +232,7 @@ function Shell() {
       <aside className={`sidebar no-print ${navOpen ? 'open' : ''}`}>
         <Logo tagline="Predictive HRIS" />
 
-        <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
-          <button className="cmdk-trigger no-print" style={{ marginBottom: 0, flex: 1 }} onClick={() => setPaletteOpen(true)}>
-            <span>Jump to…</span>
-            <kbd>{isMac ? '⌘K' : 'Ctrl K'}</kbd>
-          </button>
+        <div style={{ marginBottom: 14 }}>
           <NotificationBell />
         </div>
 
@@ -285,17 +277,6 @@ function Shell() {
           </div>
         </div>
       </aside>
-
-      <CommandPalette
-        open={paletteOpen}
-        onOpenChange={setPaletteOpen}
-        nav={NAV}
-        role={role}
-        subscription={sub}
-        theme={theme}
-        onToggleTheme={toggleTheme}
-        onSignOut={logout}
-      />
 
       <main className="main">
         <Routes>

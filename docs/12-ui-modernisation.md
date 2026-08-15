@@ -59,6 +59,11 @@ For an HR admin who does the same six things all day, a palette beats navigation
 "Farhana" → jump to her profile. Type "payroll" → run it. This is now an expectation in
 professional tools, and it is roughly 150 lines of code.
 
+**Status (15 August 2026): built, then removed.** Shipped in Phase 3 (`docs/WORK-UPDATE.md`),
+then taken back out by request — the sidebar's "Jump to… Ctrl K" trigger wasn't earning its
+place. `components/CommandPalette.tsx` and the `cmdk` dependency are gone; nothing else
+depended on either.
+
 ### 2.3 Optimistic UI with toasts
 
 Approve a leave request: the row updates *immediately*, a toast confirms, and it rolls back
@@ -137,7 +142,7 @@ Not everything fashionable is useful:
 ### Phase 3 — Layout & platform
 11. Responsive shell: collapsible sidebar, bottom nav on mobile.
 12. Light/dark following `prefers-color-scheme`, with a manual override.
-13. Command palette (⌘K).
+13. Command palette (⌘K). Built, then removed 15 August 2026 — see §2.2.
 14. Data table with sort, filter, pagination and CSV export.
 
 ### Phase 4 — Polish
