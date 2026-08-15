@@ -253,7 +253,7 @@ export function Plan() {
       ) : invoices.length === 0 ? (
         <p className="notice">No invoices yet — plan changes and renewals will appear here.</p>
       ) : (
-        <div className="card">
+        <div className="card table-card">
           <table>
             <thead>
               <tr>

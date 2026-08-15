@@ -69,7 +69,17 @@ export function OKR({ role }: { role: string }) {
       const emp = res.employee as Record<string, unknown> | null;
       if (emp) setViewingId(String(emp.id));
     });
-    if (canSetObjectives) get<EmployeeSummary[]>('/employees').then(setEmployees);
+    // HR_ADMIN has no employee record of their own, so nothing above ever sets viewingId for
+    // that role. Without a fallback, the <select> below has no option matching its '' value,
+    // so the browser silently displays the first option anyway while viewingId genuinely
+    // stays null -- objectives/scores then never fetch (both effects are gated on it), and
+    // the page looks like it's showing someone's OKRs while actually stuck loading forever.
+    if (canSetObjectives) {
+      get<EmployeeSummary[]>('/employees').then((list) => {
+        setEmployees(list);
+        if (list.length > 0) setViewingId((v) => v ?? list[0]!.id);
+      });
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -321,7 +331,7 @@ export function OKR({ role }: { role: string }) {
       ) : scores.length === 0 ? (
         <EmptyState icon="📈" title="No review scores yet" body="Quarterly review scores appear here once recorded." />
       ) : (
-        <div className="card">
+        <div className="card table-card">
           <table>
             <thead>
               <tr>

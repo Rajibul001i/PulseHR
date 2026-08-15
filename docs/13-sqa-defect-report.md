@@ -646,3 +646,101 @@ test is unchanged and still passes.
 **Re-verified:** full regression after each fix (107 unit, 30 smoke, 64 bughunt — including
 new check BUG-25) on a clean reseed+restart, then the load test itself re-run: 16,859
 requests, zero genuine errors, down from 85 failures beforehand.
+
+## 15. Addendum — 15 August 2026 — full-app visual/UX audit, seven real defects
+
+Every earlier design pass this project has done touched specific pages (the rebrand, the
+`.row`/`.row-tight` layout fix in §11, the careers redesign in item 9 of `WORK-UPDATE.md`).
+This pass was different in scope: every authenticated page plus login/reset-password,
+screenshotted at desktop (1360px) and mobile (390px) widths with **real seeded data** — not
+empty states, which earlier in this project (§11) already proved can mask real bugs. Seven
+were found; all seven are fixed. None were caught by `bughunt.mjs` because none are backend
+logic defects — they're React state bugs, a CSS layout defect, and two copy leaks, which a
+black-box API test script structurally cannot see. Verification here is the Playwright
+screenshot pass itself, re-run after each fix.
+
+### BUG-26 — Severity: High · two pages silently never loaded for HR_ADMIN
+
+`Profile.tsx` and `OKR.tsx` both pick a default employee to show via `if (emp) setViewingId(...)`
+— which only fires when the signed-in principal has their own employee record. HR_ADMIN
+doesn't have one (by design — it's an administrative account, not a staff record), so for
+that role `viewingId` stayed `null` after every fresh page load, with nothing to ever set it.
+
+That alone would be a quieter bug (an empty picker, easy to notice and fix) — what made it a
+real defect worth a High severity is what the `<select>` does next: with `value={viewingId ?? ''}`
+and no option whose value is `''`, the browser has no matching option to honor, so it falls
+back to **visually displaying the first employee in the list as selected** — a rendering
+fallback, not a React state change, so it fires no `onChange` and React's own state stays
+`null`. The result: both pages looked like they were showing a specific employee's documents
+(Profile) or OKRs (OKR) — name correctly shown in the dropdown — while the section below sat
+on its loading skeleton forever, because the fetch effects are correctly gated on `viewingId`
+being non-null and it genuinely never was. Only a real user interaction with the dropdown
+(even reselecting the name already shown) fired the state update and unstuck it.
+
+**Fix:** once the employee list loads, auto-select the first entry for HR_ADMIN
+(`setViewingId((v) => v ?? list[0].id)`) in both files, so the visible selection and React's
+state are never out of sync from the first render.
+
+### BUG-27 — Severity: High · Payslips.tsx leaked a raw API error to every HR admin
+
+`GET /api/payroll/payslips` with no `employeeId` returns `400 { error: 'employeeId required' }`
+— correct API behavior; HR_ADMIN has no personal payslips to default to. But `Payslips.tsx`
+rendered that error message directly (`<p className="error">{error}</p>`), so every HR admin
+opening **Payslips** saw a raw `employeeId required` line above an empty table. This was
+already flagged as a known gap in `WORK-UPDATE.md` Session 3's outstanding-items list and left
+unfixed pending a team decision.
+
+The route already accepts an explicit `?employeeId=` — `Leave.tsx` and `Profile.tsx` both
+already give HR_ADMIN a "Viewing" picker for the equivalent problem on their own pages;
+Payslips never got the same treatment. Fixed the same way: HR_ADMIN now gets a "Viewing"
+employee picker (auto-selecting the first entry, same fix as BUG-26) and can browse any
+employee's payslip history and download their PDFs — a real capability the backend already
+supported and the UI simply never exposed.
+
+### BUG-28 — Severity: Medium · two pages force the whole app wider than the viewport on mobile
+
+Recruitment's Kanban board (5 columns, 200px minimum each) and the Attendance grid (31 day
+columns) both already had their own `overflow-x: auto` wrapper (`.board`, `.att-grid`) meant
+to scroll internally on narrow screens. Neither worked. Root cause was one level up: `.main`
+is a flex item (`.shell { display: flex }`) with no `min-width` override, and a flex item's
+default `min-width: auto` refuses to shrink below its content's intrinsic minimum width — so
+`.main` never got the chance to become narrower than the widest thing inside it, and the
+*entire page* rendered at the content's natural width instead of the viewport's. At 390px,
+Recruitment rendered at 1084px and Attendance at 963px — confirmed by checking the actual
+screenshot pixel dimensions, not just eyeballing it. `Leave.tsx`'s request table (569px) had
+the same root cause without even having its own scroll wrapper to be defeated.
+
+**Fix:** `.main { min-width: 0; }` — the standard override for this well-known flexbox
+behavior. This alone let `.board` and `.att-grid`'s existing scroll wrappers start working.
+For every other page with a table but no dedicated scroll wrapper (Leave, OKR's review-score
+table, Payslips' two tables, AtRisk's contributing-factors table, Dashboard's at-risk list,
+Plan's invoice table, Recruitment's vacancy list, and the candidate stage-history/evaluations
+tables), added a new `.table-card` class (`overflow-x: auto`, mirroring `.att-grid`'s own
+pattern) rather than adding `overflow-x` to the shared `.card` rule directly — `.plan-card`'s
+"CURRENT PLAN" badge deliberately sits partly above the card's top edge via a negative
+offset, and forcing `overflow-x` on `.card` would force `overflow-y` to stop being `visible`
+too (per the CSS spec, one non-`visible` axis forces the other to `auto`), clipping it.
+
+Confirmed fixed by re-measuring: every previously-overflowing page now renders at exactly
+390px wide at that viewport, with the wide content scrolling inside its own card instead.
+
+### BUG-29 — Severity: Low · two pages leaked internal spec-tracking IDs into user-facing copy
+
+`Login.tsx`'s forgot-password form read *"Enter the email on your account and we'll send a
+reset link — F1.4, US-05."* and `Profile.tsx`'s subtitle for an HR admin viewing someone
+else's profile read *"Attach verification documents to this employee's record (F2.5)."* —
+both trailing citations are this project's own internal feature/user-story tracking IDs
+(used correctly and extensively throughout the `docs/` folder and code comments), rendered
+directly into the shipped product. Neither means anything to an actual user. Removed both;
+left the many *comment* references to the same IDs alone, since those are genuinely useful
+to a developer reading the code and were never user-facing. Grepped the rest of `pages/` and
+`components/` for the same pattern (`F\d\.\d`, `US-\d\d`, `BUG-\d\d`, `ADR-\d\d`, `P0-\d\d`,
+`NFR-\d\d`) and confirmed no other instance is inside rendered JSX text.
+
+**Re-verified:** full regression (107 unit, 30 smoke, 64 bughunt — all green, unchanged from
+§14 since no backend behavior changed) plus a fresh Playwright screenshot pass — every one of
+the 20 desktop+mobile page screenshots re-captured after the fixes, confirming each defect's
+specific symptom is gone (Documents/Objectives/Review-scores sections load instead of sticking
+on their skeleton; Payslips shows a real picker and real data instead of a raw error; every
+previously 1084px/963px/569px mobile screenshot now measures exactly 390px) and that nothing
+else regressed.

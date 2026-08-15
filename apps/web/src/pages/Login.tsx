@@ -122,7 +122,7 @@ export function Login() {
         ) : (
           <form className="card" onSubmit={submitForgot}>
             <p className="page-sub" style={{ margin: '0 0 14px' }}>
-              Enter the email on your account and we'll send a reset link — F1.4, US-05.
+              Enter the email on your account and we'll send a reset link.
             </p>
             <div className="field">
               <label htmlFor="forgot-email">Email</label>

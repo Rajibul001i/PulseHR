@@ -55,7 +55,20 @@ export function Profile({ role }: { role: string }) {
       setEmergencyContact(String(emp?.emergency_contact ?? ''));
       if (emp) setViewingId(String(emp.id));
     });
-    if (isHrAdmin) get<EmployeeSummary[]>('/employees').then(setEmployees);
+    if (isHrAdmin) {
+      get<EmployeeSummary[]>('/employees').then((list) => {
+        setEmployees(list);
+        // HR_ADMIN has no employee record of their own (nothing sets viewingId above), so
+        // without this the <select> has no option matching its '' value and the browser
+        // silently falls back to showing the first option as selected -- while React's real
+        // state stays null. The page then LOOKS like it's showing someone's documents but
+        // the fetch never fires (useEffect below is gated on viewingId), so the section
+        // stays stuck on its loading skeleton until the admin happens to reselect the same
+        // name. Setting real state here keeps the visible selection and the fetch in sync
+        // from the first render.
+        if (list.length > 0) setViewingId((v) => v ?? list[0]!.id);
+      });
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -148,7 +161,7 @@ export function Profile({ role }: { role: string }) {
       <p className="page-sub">
         {viewingSelf || !isHrAdmin
           ? 'Update your contact details. HR sees the change immediately — no approval step.'
-          : 'Attach verification documents to this employee\'s record (F2.5).'}
+          : "Attach verification documents to this employee's record."}
       </p>
 
       {isHrAdmin && employees.length > 0 && (
@@ -241,7 +254,7 @@ export function Profile({ role }: { role: string }) {
       ) : documents.length === 0 ? (
         <EmptyState icon="📎" title="No documents yet" body="Appointment letters, NID copies and certificates uploaded here will appear in this list." />
       ) : (
-        <div className="card content-in">
+        <div className="card content-in table-card">
           <table>
             <thead>
               <tr>

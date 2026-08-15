@@ -164,7 +164,7 @@ export function AtRisk() {
       </div>
 
       <h2>Contributing factors</h2>
-      <div className="card">
+      <div className="card table-card">
         <table>
           <thead>
             <tr>

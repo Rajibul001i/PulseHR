@@ -175,7 +175,11 @@ a { color: var(--accent); text-decoration: none; }
 .palette-menu-item:hover { background: var(--surface-2); }
 .palette-menu-item.active { color: var(--accent); font-weight: 650; }
 
-.main { flex: 1; padding: 26px 30px 60px; max-width: 1180px; }
+/* min-width: 0 overrides the flex-item default of min-width: auto, which otherwise refuses
+ * to shrink below the widest fixed-min-width content inside it (the recruitment Kanban
+ * board's 5 columns at 200px each) -- without it, the whole page grows past the viewport on
+ * narrow screens instead of letting the board's own overflow-x:auto scroll internally. */
+.main { flex: 1; min-width: 0; padding: 26px 30px 60px; max-width: 1180px; }
 
 .nav-toggle {
   display: none;
@@ -477,6 +481,13 @@ label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 5px
   margin-left: auto; background: none; border: none; color: var(--muted);
   padding: 0 2px; font-size: 16px; line-height: 1; cursor: pointer;
 }
+/* Any card whose only job is holding a table: scroll horizontally within the card on a
+ * narrow screen instead of forcing the whole page wider (same fix as .att-grid below,
+ * generalized). Not folded into the bare .card rule -- .plan-card's "CURRENT PLAN" badge
+ * deliberately sits partly above the card's top edge via a negative offset, and setting
+ * overflow-x on .card would force overflow-y to stop being visible too, clipping it. */
+.table-card { overflow-x: auto; }
+
 /* ---------------------------- attendance grid --------------------------- */
 
 .att-grid { overflow-x: auto; }

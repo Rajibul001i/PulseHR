@@ -161,7 +161,7 @@ export function Leave({ role }: { role: string }) {
           }
         />
       ) : (
-      <div className="card content-in">
+      <div className="card content-in table-card">
         <table>
           <thead>
             <tr>

@@ -191,7 +191,7 @@ export function Recruitment({ role }: { role: string }) {
       ) : vacancies.length === 0 ? (
         <EmptyState icon="💼" title="No vacancies yet" body="Publish one above to start receiving applications." />
       ) : (
-        <div className="card">
+        <div className="card table-card">
           <table>
             <thead>
               <tr>
@@ -389,32 +389,36 @@ function CandidateDetailPanel({
       </p>
 
       <h3>Stage history</h3>
-      <table>
-        <tbody>
-          {stageHistory.map((h, i) => (
-            <tr key={i}>
-              <td>{h.from_stage ?? '—'} → {h.to_stage}</td>
-              <td className="stat-note">{h.reason ?? ''}</td>
-              <td className="stat-note">{new Date(h.created_at).toLocaleString()}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <div className="table-card">
+        <table>
+          <tbody>
+            {stageHistory.map((h, i) => (
+              <tr key={i}>
+                <td>{h.from_stage ?? '—'} → {h.to_stage}</td>
+                <td className="stat-note">{h.reason ?? ''}</td>
+                <td className="stat-note">{new Date(h.created_at).toLocaleString()}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
 
       {evaluations.length > 0 && (
         <>
           <h3>Evaluations</h3>
-          <table>
-            <tbody>
-              {evaluations.map((ev, i) => (
-                <tr key={i}>
-                  <td>{ev.interview_date}</td>
-                  <td className="num">{ev.score}/5</td>
-                  <td>{ev.comments}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div className="table-card">
+            <table>
+              <tbody>
+                {evaluations.map((ev, i) => (
+                  <tr key={i}>
+                    <td>{ev.interview_date}</td>
+                    <td className="num">{ev.score}/5</td>
+                    <td>{ev.comments}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </>
       )}
 

@@ -7,24 +7,55 @@ const MONTHS = [
   'July', 'August', 'September', 'October', 'November', 'December',
 ];
 
+interface EmployeeSummary {
+  id: string;
+  full_name: string;
+  employee_code: string;
+}
+
 export function Payslips({ role }: { role: string }) {
+  const isHrAdmin = role === 'HR_ADMIN';
   const [list, setList] = useState<PayslipDto[]>([]);
   const [open, setOpen] = useState<{ payslip: PayslipDto; lines: PayslipLineDto[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
   const [runMsg, setRunMsg] = useState<string | null>(null);
 
-  async function load() {
+  // HR_ADMIN has no employee record of their own, so "my payslips" doesn't apply to them —
+  // GET /payroll/payslips with no employeeId 400s. The route already accepts an explicit
+  // ?employeeId=, same as Profile.tsx's document viewer, so give HR the same "Viewing"
+  // picker instead of either leaking that 400 to the screen or hiding the section outright.
+  const [employees, setEmployees] = useState<EmployeeSummary[]>([]);
+  const [viewingId, setViewingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (isHrAdmin) {
+      get<EmployeeSummary[]>('/employees').then((list) => {
+        setEmployees(list);
+        if (list.length > 0) setViewingId((v) => v ?? list[0]!.id);
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function load(employeeId?: string) {
+    if (isHrAdmin && !employeeId) return; // waiting on the employee list / picker above
     try {
-      setList(await get<PayslipDto[]>('/payroll/payslips'));
+      const query = employeeId ? `?employeeId=${employeeId}` : '';
+      setList(await get<PayslipDto[]>(`/payroll/payslips${query}`));
     } catch (err) {
       setError((err as Error).message);
     }
   }
 
   useEffect(() => {
-    void load();
-  }, []);
+    if (isHrAdmin) {
+      if (viewingId) void load(viewingId);
+    } else {
+      void load();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewingId]);
 
   async function runPayroll() {
     setRunning(true);
@@ -53,7 +84,7 @@ export function Payslips({ role }: { role: string }) {
           break;
         }
       }
-      await load();
+      await load(isHrAdmin ? (viewingId ?? undefined) : undefined);
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -208,7 +239,24 @@ export function Payslips({ role }: { role: string }) {
         </div>
       )}
 
-      <div className="card">
+      {isHrAdmin && employees.length > 0 && (
+        <div className="field" style={{ maxWidth: 320, marginBottom: 14 }}>
+          <label htmlFor="payslip-emp-picker">Viewing</label>
+          <select
+            id="payslip-emp-picker"
+            value={viewingId ?? ''}
+            onChange={(e) => setViewingId(e.target.value)}
+          >
+            {employees.map((e) => (
+              <option key={e.id} value={e.id}>
+                {e.full_name} — {e.employee_code}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      <div className="card table-card">
         <table>
           <thead>
             <tr>

@@ -160,7 +160,7 @@ export function Dashboard({
                   }
                 />
               ) : (
-                <div className="card content-in">
+                <div className="card content-in table-card">
                   <div className="row no-print" style={{ marginBottom: 14 }}>
                     <div style={{ flex: 2 }}>
                       <span className="notice">Scored {atRisk[0]!.scored_on}</span>

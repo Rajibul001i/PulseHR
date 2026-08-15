@@ -6,6 +6,51 @@ as a changelog.
 
 ---
 
+## Session 5 — 15 August 2026
+
+### 1. Full-app visual/UX audit — seven real defects found and fixed
+
+Requested as "implement the frontend-design skills, make an assessment and fix everything" —
+read as a systematic pass across the whole product, not just one page. Screenshotted every
+authenticated page plus login/reset-password at desktop (1360px) and mobile (390px) widths,
+against **real seeded data** (leave requests, notices, an OKR objective, real payslips) —
+empty states already proved earlier in this project (Session 4 item 6) that they mask real
+bugs. Found seven, all fixed, none caught by `bughunt.mjs` because none are backend logic
+defects:
+
+1. **Profile.tsx and OKR.tsx silently never loaded for HR_ADMIN.** Both pick a default
+   employee via `if (emp) setViewingId(...)`, which never fires for HR_ADMIN (no employee
+   record of their own) — and with no matching `<select>` option for `viewingId`'s `null`
+   state, the browser's own fallback rendering made it *look* like the first employee was
+   already selected while React's real state stayed `null` and the fetch never fired. Both
+   pages appeared to be showing someone's documents/OKRs while actually stuck on a loading
+   skeleton forever. Fixed by auto-selecting the first employee once the list loads.
+2. **Payslips.tsx leaked a raw `employeeId required` API error** to every HR admin who opened
+   the page — a gap already flagged and left unfixed in Session 3. The backend already
+   accepted an explicit `?employeeId=`, the same pattern Leave and Profile already used for
+   HR_ADMIN; Payslips just never got it. Fixed the same way, which also means HR admins can
+   now actually browse any employee's payslip history and download their PDFs — a real
+   capability the API already supported.
+3. **Recruitment and Attendance forced the whole page wider than the viewport on mobile**
+   (measured 1084px and 963px wide at a 390px viewport, respectively) despite both already
+   having their own internal horizontal-scroll wrapper. Root cause was one level up: `.main`
+   is a flex item with no `min-width: 0`, so it refused to shrink below its widest child's
+   content — the entire layout grew instead of letting the inner wrappers scroll. One CSS
+   fix resolved both, plus every other page with a wide table and no dedicated wrapper got a
+   new `.table-card` scroll class (kept separate from the shared `.card` rule, since
+   `.plan-card`'s badge relies on `.card` staying `overflow: visible`).
+4. **Two pages showed internal spec-tracking IDs to real users** — "…we'll send a reset
+   link — F1.4, US-05." on the forgot-password form, and "(F2.5)" on Profile's subtitle.
+   Removed both; the same IDs remain in code comments, which is where they belong.
+
+**Verified:** full regression (107 unit, 30 smoke, 64 bughunt — all green) plus a complete
+re-screenshot of all 20 page/width combinations confirming each specific symptom is gone —
+every previously-overflowing mobile screenshot now measures exactly 390px, and the two
+previously-stuck pages now show real loaded content. Full writeup in
+`docs/13-sqa-defect-report.md` §15.
+
+---
+
 ## Session 4 — 13 August 2026
 
 Direct feedback on the live demo after Session 3's close-out: a session-recovery bug that
