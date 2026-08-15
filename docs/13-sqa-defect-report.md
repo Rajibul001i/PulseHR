@@ -942,10 +942,15 @@ was pg-mem's, not this migration's:
   on success / `ROLLBACK` + rethrow on error / always release) — correct by code review, and
   the identical guarantee already holds on the SQLite path per this session's smoke checks.
 
-**Follow-up, not yet done:** spot-check real rollback behavior against the live Render
-PostgreSQL instance once provisioned, by re-running `smoke.mjs`'s P0-7 concurrent-approval
-check with `DATABASE_URL` set. This is the one property this pass could not verify by any
-means short of a real PostgreSQL server.
+**Follow-up — done.** `render.yaml` was pushed with the `databases:` block; Render provisioned
+`pulsehr-db` and redeployed `pulsehr-api` with `DATABASE_URL` wired in. Confirmed live via
+Playwright (login, dashboard, a data-heavy page rendering real rows) and by re-running
+`smoke.mjs` with `API=https://pulsehr-api-n7il.onrender.com` — **20/20 passed against the real
+Postgres instance**, including P0-7's concurrent-approval check ("second approval is REJECTED
+with 409 — the balance guard holds"), which is the exact rollback-atomicity property pg-mem
+could not verify. This closes the one gap the pg-mem-based verification above could not cover
+by any other means. `pgTransaction()`'s standard `node-postgres` transaction pattern is now
+confirmed correct against a real PostgreSQL server, not just by code review.
 
 ### Deployment
 

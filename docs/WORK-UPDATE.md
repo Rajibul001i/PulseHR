@@ -135,7 +135,12 @@ Postgres; the database-level backstops remain a real, tracked improvement, not a
 **Verified:** full regression on the SQLite path after every conversion (0 typecheck errors
 workspace-wide, 107 unit, 20 smoke including P0-7, 57 bughunt with 0 defects, both job scripts
 run for real) confirming nothing observable changed, plus the pg-mem PostgreSQL verification
-above. Full writeup in `docs/13-sqa-defect-report.md` §17.
+above. **Then deployed for real**: pushed, Render provisioned the managed Postgres instance
+and redeployed the API with it wired in, confirmed live via Playwright (login, dashboard, a
+data page rendering real rows) and by re-running `smoke.mjs` against the live URL — 20/20,
+including P0-7's concurrent-approval check, which is the exact transaction-rollback property
+pg-mem couldn't verify. The live demo now runs on real PostgreSQL, not SQLite. Full writeup in
+`docs/13-sqa-defect-report.md` §17.
 
 ---
 
