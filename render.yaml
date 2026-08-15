@@ -1,9 +1,28 @@
-# Render Blueprint — deploys the PulseHR API as a live demo backend.
+# Render Blueprint — deploys the PulseHR API and its database as a live demo backend.
 #
-# Free tier: sleeps after 15 min idle, ~30-60s cold start on the next request, and the
-# SQLite file lives in ephemeral storage — wiped and reseeded on every (re)start. That's a
-# feature here, not a bug: the seed is deterministic (docs/ADR-009), so every wake-up gives
-# the same reproducible demo data, not stale or corrupted state.
+# ADR-009: SQLite is the zero-install prototype path, PostgreSQL is the production target --
+# db.ts picks between them automatically based on whether DATABASE_URL is set. This blueprint
+# provisions BOTH: the `pulsehr-db` managed Postgres instance below, wired to the API service
+# via DATABASE_URL, so the live demo runs on the real production database path, not SQLite.
+#
+# Free tier caveats, both services: the web service sleeps after 15 min idle (~30-60s cold
+# start on the next request). Render's free Postgres plan has a documented expiry window
+# (historically on the order of weeks after creation, not per-restart -- check Render's
+# current pricing page for the exact figure, since this has changed before and isn't worth
+# hard-coding a number likely to go stale) -- if the live demo ever shows a database
+# connection error after a long gap, that's almost certainly why, and the fix is recreating
+# the `databases:` entry (Render provisions a fresh instance; reseed follows automatically
+# since a fresh database starts empty). Seeding itself only runs once against an empty
+# database (seed.ts's own guard) -- a real restart does NOT wipe Postgres data, unlike the
+# old SQLite-only setup this replaced, where a wipe-and-reseed on every boot was the
+# deliberate behavior (ephemeral local disk, so there was nothing to lose).
+databases:
+  - name: pulsehr-db
+    plan: free
+    region: singapore
+    databaseName: pulsehr
+    user: pulsehr
+
 services:
   - type: web
     name: pulsehr-api
@@ -17,6 +36,10 @@ services:
         value: 24
       - key: PULSEHR_JWT_SECRET
         generateValue: true
+      - key: DATABASE_URL
+        fromDatabase:
+          name: pulsehr-db
+          property: connectionString
       # F9 — optional. Without it, POST /attrition/scores/:id/explain returns 503 and the
       # rest of the app is unaffected; the AI risk-explanation assistant just stays inactive.
       - key: ANTHROPIC_API_KEY

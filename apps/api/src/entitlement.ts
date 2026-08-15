@@ -13,8 +13,8 @@ import type { NextFunction, Request, Response } from 'express';
 import { businessDate, checkEntitlement, type Subscription } from '@pulsehr/core';
 import { nowIso, one, run, uuid } from './db.js';
 
-export function subscriptionOf(organisationId: string): Subscription {
-  const row = one(
+export async function subscriptionOf(organisationId: string): Promise<Subscription> {
+  const row = await one(
     `SELECT tier, plan_status, seat_limit, trial_ends_on,
             (SELECT COUNT(*) FROM employee e
               WHERE e.organisation_id = o.id AND e.employment_status = 'ACTIVE') AS seats_used
@@ -40,38 +40,40 @@ export function subscriptionOf(organisationId: string): Subscription {
  */
 export function requireFeature(featureKey: string) {
   return (req: Request, res: Response, next: NextFunction): void => {
-    const p = req.principal!;
-    const subscription = subscriptionOf(p.organisationId);
-    const result = checkEntitlement(subscription, featureKey, businessDate(new Date()));
+    (async () => {
+      const p = req.principal!;
+      const subscription = await subscriptionOf(p.organisationId);
+      const result = checkEntitlement(subscription, featureKey, businessDate(new Date()));
 
-    if (result.allowed) {
-      next();
-      return;
-    }
+      if (result.allowed) {
+        next();
+        return;
+      }
 
-    run(
-      `INSERT INTO feature_gate_hit (id, organisation_id, user_id, feature_key,
-                                     current_tier, required_tier, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      uuid(),
-      p.organisationId,
-      p.userId,
-      featureKey,
-      result.currentTier,
-      result.requiredTier ?? result.currentTier,
-      nowIso(),
-    );
+      await run(
+        `INSERT INTO feature_gate_hit (id, organisation_id, user_id, feature_key,
+                                       current_tier, required_tier, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        uuid(),
+        p.organisationId,
+        p.userId,
+        featureKey,
+        result.currentTier,
+        result.requiredTier ?? result.currentTier,
+        nowIso(),
+      );
 
-    res.status(402).json({
-      error: result.message ?? 'This feature is not included in your plan',
-      code: result.reason,
-      feature: result.feature?.key,
-      featureLabel: result.feature?.label,
-      currentTier: result.currentTier,
-      requiredTier: result.requiredTier,
-      upgrade: result.requiredTier
-        ? { tier: result.requiredTier, pitch: result.feature?.pitch }
-        : undefined,
-    });
+      res.status(402).json({
+        error: result.message ?? 'This feature is not included in your plan',
+        code: result.reason,
+        feature: result.feature?.key,
+        featureLabel: result.feature?.label,
+        currentTier: result.currentTier,
+        requiredTier: result.requiredTier,
+        upgrade: result.requiredTier
+          ? { tier: result.requiredTier, pitch: result.feature?.pitch }
+          : undefined,
+      });
+    })().catch(next);
   };
 }

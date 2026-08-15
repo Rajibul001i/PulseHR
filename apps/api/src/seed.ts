@@ -18,7 +18,7 @@ import {
   isWorkingDay,
   taka,
 } from '@pulsehr/core';
-import { getDb, nowIso, one, openDb, run, uuid } from './db.js';
+import { all, exec, nowIso, one, openDb, run, uuid } from './db.js';
 import { hashPassword } from './auth.js';
 
 /** Deterministic PRNG (mulberry32) — a seeded demo must be reproducible. */
@@ -76,18 +76,18 @@ const PROFILES: Profile[] = [
   { name: 'Ishrat Jahan', designation: 'Support Lead', gender: 'F', monthsTenure: 33, basic: 52_000, risk: 'calm', department: 'Support' },
 ];
 
-function seedOrganisation(opts: {
+async function seedOrganisation(opts: {
   name: string;
   tier: 'STARTER' | 'GROWTH' | 'ENTERPRISE';
   emailDomain: string;
   profiles: Profile[];
   seed: number;
-}): void {
+}): Promise<void> {
   const orgId = uuid();
   const random = rng(opts.seed);
 
   const seatLimit = opts.tier === 'STARTER' ? 50 : opts.tier === 'GROWTH' ? 300 : 5000;
-  run(
+  await run(
     `INSERT INTO organisation (id, name, tier, weekend_days, plan_status, seat_limit,
                                billing_email, renews_on, created_at)
      VALUES (?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?)`,
@@ -100,7 +100,7 @@ function seedOrganisation(opts: {
     addDays(TODAY, 300),
     nowIso(),
   );
-  run(
+  await run(
     `INSERT INTO subscription_event (id, organisation_id, event_type, from_tier, to_tier,
                                      effective_on, note, created_at)
      VALUES (?, ?, 'SUBSCRIBED', NULL, ?, ?, 'Initial subscription', ?)`,
@@ -117,7 +117,7 @@ function seedOrganisation(opts: {
     departments.set(dept, id);
     // BUG-07: office start is per-department. Support starts early, Sales starts late.
     const start = dept === 'Support' ? '08:30' : dept === 'Sales' ? '10:00' : '09:00';
-    run(
+    await run(
       'INSERT INTO department (id, organisation_id, name, office_start_time) VALUES (?, ?, ?, ?)',
       id, orgId, dept, start,
     );
@@ -125,7 +125,7 @@ function seedOrganisation(opts: {
 
   // HR admin account
   const hrUserId = uuid();
-  run(
+  await run(
     `INSERT INTO app_user (id, organisation_id, email, password_hash, role, is_active, created_at)
      VALUES (?, ?, ?, ?, 'HR_ADMIN', 1, ?)`,
     hrUserId,
@@ -138,13 +138,17 @@ function seedOrganisation(opts: {
   const employeeIds: string[] = [];
   let managerId: string | null = null;
 
-  opts.profiles.forEach((profile, index) => {
+  // Sequential, not Promise.all -- a manager's employeeId must be committed before the next
+  // profile in line can reference it as manager_id (see `if (isManager) managerId = ...`
+  // below). A .forEach with an async callback would fire every iteration concurrently and
+  // silently drop this ordering.
+  for (const [index, profile] of opts.profiles.entries()) {
     const employeeId = uuid();
     const userId = uuid();
     const isManager = profile.designation.includes('Manager') || profile.designation.includes('Lead');
 
     const emailLocal = profile.name.toLowerCase().replace(/[^a-z]+/g, '.');
-    run(
+    await run(
       `INSERT INTO app_user (id, organisation_id, email, password_hash, role, is_active, created_at)
        VALUES (?, ?, ?, ?, ?, 1, ?)`,
       userId,
@@ -159,7 +163,7 @@ function seedOrganisation(opts: {
     // A recent manager change only for the "leaving" profiles — F6.
     const managerChangedAt = profile.risk === 'leaving' && index % 2 === 0 ? addDays(TODAY, -45) : null;
 
-    run(
+    await run(
       `INSERT INTO employee (id, organisation_id, user_id, department_id, manager_id, employee_code,
                              full_name, designation, gender, hire_date, employment_status,
                              manager_changed_at, created_at)
@@ -200,16 +204,16 @@ function seedOrganisation(opts: {
         nowIso(),
       );
 
-    structure(uuid(), hireDate, Math.round(basic * 0.85));
+    await structure(uuid(), hireDate, Math.round(basic * 0.85));
     if (profile.risk !== 'leaving' && profile.monthsTenure > 14) {
-      structure(uuid(), addDays(TODAY, -200), basic); // a raise ~6.5 months ago
+      await structure(uuid(), addDays(TODAY, -200), basic); // a raise ~6.5 months ago
     }
 
     // --- Leave: accrual to date, then annual grants.
     const workedDays = countWorkingDaysApprox(hireDate, TODAY);
     const accrued = accrueEarnedLeave(workedDays);
     if (accrued > 0) {
-      run(
+      await run(
         `INSERT INTO leave_ledger (id, organisation_id, employee_id, leave_type, delta,
                                    effective_date, reason, created_by, created_at)
          VALUES (?, ?, ?, 'EARNED', ?, ?, ?, 'system', ?)`,
@@ -224,7 +228,7 @@ function seedOrganisation(opts: {
     }
     for (const type of ['CASUAL', 'SICK'] as const) {
       const grant = annualGrant(type, 12);
-      run(
+      await run(
         `INSERT INTO leave_ledger (id, organisation_id, employee_id, leave_type, delta,
                                    effective_date, reason, created_by, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, 'system', ?)`,
@@ -241,7 +245,7 @@ function seedOrganisation(opts: {
 
     // "leaving" employees have drawn down leave heavily in the last 90 days (F4).
     if (profile.risk === 'leaving' && accrued >= 6) {
-      run(
+      await run(
         `INSERT INTO leave_ledger (id, organisation_id, employee_id, leave_type, delta,
                                    effective_date, reason, created_by, created_at)
          VALUES (?, ?, ?, 'EARNED', ?, ?, 'Leave taken', 'system', ?)`,
@@ -255,8 +259,8 @@ function seedOrganisation(opts: {
     }
 
     // --- Attendance history
-    seedAttendance(orgId, employeeId, profile, random);
-  });
+    await seedAttendance(orgId, employeeId, profile, random);
+  }
 
   // Noticeboard
   for (const [title, body] of [
@@ -264,7 +268,7 @@ function seedOrganisation(opts: {
     ['Quarterly OKR Review', 'All teams should finalise their quarterly key results before the review cycle opens.'],
     ['Updated Leave Policy', 'Earned leave now accrues per the statutory rate of one day per eighteen days worked, visible in your dashboard.'],
   ] as const) {
-    run(
+    await run(
       'INSERT INTO notice (id, organisation_id, title, body, published_by, published_at) VALUES (?, ?, ?, ?, ?, ?)',
       uuid(),
       orgId,
@@ -280,18 +284,18 @@ function seedOrganisation(opts: {
   );
 }
 
-function seedAttendance(
+async function seedAttendance(
   orgId: string,
   employeeId: string,
   profile: Profile,
   random: () => number,
-): void {
+): Promise<void> {
   const from = addDays(TODAY, -HISTORY_DAYS);
 
   for (const date of eachDay(from, TODAY)) {
     // P0-9: Friday + Saturday weekend, not Saturday + Sunday.
     if (!isWorkingDay(date, DEFAULT_WORK_WEEK)) {
-      run(
+      await run(
         `INSERT INTO attendance (id, organisation_id, employee_id, work_date, status)
          VALUES (?, ?, ?, ?, 'WEEKEND')`,
         uuid(),
@@ -322,7 +326,7 @@ function seedAttendance(
     const isAbsent = recent && weekendAdjacent && random() < absenceChance;
 
     if (isAbsent) {
-      run(
+      await run(
         `INSERT INTO attendance (id, organisation_id, employee_id, work_date, status, is_unplanned)
          VALUES (?, ?, ?, ?, 'ABSENT', 1)`,
         uuid(),
@@ -337,7 +341,7 @@ function seedAttendance(
     const otHours = profile.risk === 'leaving' && random() < 0.4 ? Math.round(random() * 3 * 10) / 10 : 0;
     const checkOut = `${date}T${String(12 + Math.floor(otHours)).padStart(2, '0')}:00:00.000Z`;
 
-    run(
+    await run(
       `INSERT INTO attendance (id, organisation_id, employee_id, work_date, check_in, check_out,
                                late_minutes, ot_hours, status)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'PRESENT')`,
@@ -362,11 +366,28 @@ function countWorkingDaysApprox(from: string, to: string): number {
 
 /* --------------------------------- main ---------------------------------- */
 
-openDb();
-const db = getDb();
+await openDb();
+
+// SQLite (no DATABASE_URL): the file lives on Render's ephemeral disk anyway (wiped on every
+// restart regardless), so wipe-and-reseed on every run is what already made the free-tier
+// demo deterministic -- see render.yaml's header comment. PostgreSQL (DATABASE_URL set): the
+// whole point of a real database is that it persists, so this must NOT run on every restart
+// the way the startCommand's `npm run seed` invocation does today -- that would silently
+// erase real data on every redeploy. Guarded on the database already having an organisation:
+// empty (first boot against a fresh Postgres instance) seeds normally; non-empty skips
+// entirely, whether this script was launched by render.yaml's startCommand or run by hand --
+// wiping real Postgres data should require a deliberate action (dropping/truncating tables
+// directly), not just re-running the same command that seeded it the first time.
+if (process.env.DATABASE_URL) {
+  const existing = await all('SELECT id FROM organisation LIMIT 1');
+  if (existing.length > 0) {
+    console.log('[seed] PostgreSQL already has data -- skipping to avoid erasing it.');
+    process.exit(0);
+  }
+}
 
 // Idempotent: wipe and re-seed so the demo is reproducible. Order matters -- a table must
-// be cleared before anything it references (FK enforcement is on, db.ts:26).
+// be cleared before anything it references (FK enforcement is on, db.ts).
 for (const table of [
   'key_result', 'candidate_stage_event', 'candidate_evaluation', 'notice_department', 'notice_read',
   'attrition_contribution', 'attrition_score', 'payslip_line', 'payslip', 'leave_ledger',
@@ -376,10 +397,10 @@ for (const table of [
   'session', 'employee', 'app_user', 'department',
   'subscription_event', 'feature_gate_hit', 'invoice', 'organisation', // invoice added with migration 011
 ]) {
-  db.exec(`DELETE FROM ${table}`);
+  await exec(`DELETE FROM ${table}`);
 }
 
-seedOrganisation({
+await seedOrganisation({
   name: 'Meridian Textiles Ltd.',
   tier: 'ENTERPRISE',
   emailDomain: 'meridian.test',
@@ -388,7 +409,7 @@ seedOrganisation({
 });
 
 // A second tenant. Without it, tenant isolation cannot be tested (NFR-14).
-seedOrganisation({
+await seedOrganisation({
   name: 'Bengal Logistics Ltd.',
   tier: 'GROWTH',
   emailDomain: 'bengal.test',
@@ -398,7 +419,7 @@ seedOrganisation({
 
 // A third tenant on STARTER, so the locked-navigation and upgrade paths are demonstrable.
 // With only Growth and Enterprise seeded there was no way to see a gated feature.
-seedOrganisation({
+await seedOrganisation({
   name: 'Dhaka Craft Apparels Ltd.',
   tier: 'STARTER',
   emailDomain: 'dhakacraft.test',
@@ -412,10 +433,10 @@ seedOrganisation({
  * `ats` feature (GROWTH+), so Dhaka Craft (STARTER) is deliberately left with none — its
  * careers page legitimately has nothing to show, which is itself worth seeing.
  */
-function seedVacancy(hrEmail: string, title: string, requirements: string, deadlineDays: number): void {
-  const hr = one('SELECT id, organisation_id FROM app_user WHERE email = ?', hrEmail);
+async function seedVacancy(hrEmail: string, title: string, requirements: string, deadlineDays: number): Promise<void> {
+  const hr = await one('SELECT id, organisation_id FROM app_user WHERE email = ?', hrEmail);
   if (!hr) return;
-  run(
+  await run(
     `INSERT INTO vacancy (id, organisation_id, title, requirements, deadline, status, created_by, created_at)
      VALUES (?, ?, ?, ?, ?, 'PUBLISHED', ?, ?)`,
     uuid(),
@@ -428,31 +449,31 @@ function seedVacancy(hrEmail: string, title: string, requirements: string, deadl
   );
 }
 
-seedVacancy(
+await seedVacancy(
   'hr@meridian.test',
   'Senior Backend Engineer',
   '5+ years designing distributed systems in Node.js or Go. Comfortable owning a service end to end, from schema design through on-call. You will work closely with our data and platform teams to keep the core HR engine fast under real payroll load.',
   35,
 );
-seedVacancy(
+await seedVacancy(
   'hr@meridian.test',
   'QA Automation Engineer',
   "Own the adversarial test suite. Experience with black-box API testing, CI pipelines, and a healthy suspicion of your own team's claims about what already works.",
   4,
 );
-seedVacancy(
+await seedVacancy(
   'hr@meridian.test',
   'Merchandising Coordinator',
   'Coordinate sample approvals and order timelines between our design team and export buyers. Strong spreadsheet skills and comfort chasing down a slipping deadline across three time zones.',
   16,
 );
-seedVacancy(
+await seedVacancy(
   'hr@bengal.test',
   'Logistics Coordinator',
   'Coordinate shipment schedules across our export partners. Comfortable with spreadsheets, tight deadlines, and talking to freight forwarders daily.',
   9,
 );
-seedVacancy(
+await seedVacancy(
   'hr@bengal.test',
   'Fleet Operations Analyst',
   'Track fleet utilisation and turnaround times across our regional routes, and turn that into a weekly report leadership actually reads. SQL literacy expected.',

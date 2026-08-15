@@ -855,3 +855,122 @@ candidate-to-employee conversion test having run first against the same database
 same verification pass, inflating the count by exactly one before `smoke.mjs`'s hardcoded
 `=== 20` ran — confirmed by re-running `smoke.mjs` alone against a fresh reseed, which passed
 20/20; not an application defect, a test-ordering assumption between two independent scripts).
+
+## 17. Addendum — 15 August 2026 — PostgreSQL support (ADR-009's production target, built)
+
+"The proper database, as suggested in the proposal." ADR-009 always specified SQLite as the
+prototype and PostgreSQL as production; this closes that gap rather than opening a new one.
+Scope: a real, tested PostgreSQL backend selectable via `DATABASE_URL`, with SQLite remaining
+the zero-install default — not a replacement of SQLite, since the prototype's "clone and
+`npm install && npm run dev`" property (ADR-009) is still worth keeping for anyone grading or
+demoing this without wanting to stand up a database first.
+
+### What changed
+
+- **`apps/api/migrations-postgres/*.sql`** — a PostgreSQL-dialect mirror of every SQLite
+  migration (12 files, including a new `012_key_result_order.sql` — see BUG-30 below), kept
+  column-for-column identical in name, nullability and default. Two sections of
+  `docs/03-data-model.md` §3 (money, timestamps) were deliberately built differently than that
+  design note originally specified, for reasons that only became concrete during
+  implementation — both annotated in place there rather than silently diverging.
+- **`apps/api/src/db.ts` + `db-sqlite.ts` + `db-postgres.ts`** — the single global SQLite
+  connection (`node:sqlite`, synchronous) is now one of two backends behind a common async
+  `all/one/run/transaction` interface, chosen automatically by whether `DATABASE_URL` is set.
+  Every caller above this layer — `repo.ts`, `server.ts`, `seed.ts`, the two job scripts,
+  `auth.ts`, `entitlement.ts`, `features.ts` — was converted from synchronous to `async`/
+  `await` throughout, since PostgreSQL access (the `pg` driver) has no synchronous form. This
+  touched effectively the whole backend: all ~69 `Repo` methods, all 61 API routes.
+- **`apps/api/src/db-postgres.ts`** uses `pg`'s connection pool, converts this codebase's `?`
+  placeholders to PostgreSQL's `$1, $2, ...` positional form, and uses `AsyncLocalStorage` to
+  pin one checked-out client to the whole lifetime of a `transaction()` call — so every nested
+  `Repo` call made inside a transaction (however many stack frames down) reuses that same
+  connection instead of each grabbing a fresh one from the pool. This is load-bearing, not a
+  nicety: P0-7's leave-approval transaction re-reads the ledger and conditionally writes
+  specifically so two concurrent approvals can't both pass the balance check against stale
+  data, which only holds if every read and write in that transaction shares one connection.
+
+### Two portable SQL rewrites, not backend-specific branches
+
+Two queries used SQLite-only syntax. Both were rewritten to forms that SQLite and PostgreSQL
+both accept unchanged, verified against `node:sqlite` directly before adopting — the repo's
+one copy of each query now works on both backends, rather than the adapter layer needing to
+rewrite SQL text at runtime:
+
+- `INSERT OR IGNORE` (notice-read tracking) → `INSERT ... ON CONFLICT (notice_id, employee_id)
+  DO NOTHING`.
+- `x IS ?` (attendance grid's NULL-safe department filter) → `x IS NOT DISTINCT FROM ?`.
+
+### BUG-30 — Severity: Medium · `ORDER BY rowid` has no PostgreSQL equivalent
+
+`objectiveWithKeyResults()` ordered a quarter's key results by SQLite's implicit `rowid`
+(insertion order) — `key_result` had no ordering column of its own. `rowid` is a SQLite-only
+implicit column with no PostgreSQL equivalent, so this would have silently returned key
+results in arbitrary order under Postgres, exactly the kind of prototype-only assumption
+ADR-009's dual-backend design exists to catch before it reaches production. Fixed with a new
+migration (both dialects) adding an explicit `sort_order INTEGER NOT NULL DEFAULT 0` column,
+the same pattern `payslip_line` already used for its own display order — populated from the
+key result's position in the create-objective request, queried with `ORDER BY sort_order`.
+
+### Verification: pg-mem, not a real local PostgreSQL
+
+No real PostgreSQL instance was available to test against locally (no admin/elevation in this
+environment, and installing one system-wide would have violated the user's standing
+"everything on E: drive, nothing on C:" constraint — C: was at 98% capacity when this work
+started). `pg-mem`, an in-memory PostgreSQL-compatible SQL engine, was substituted for the
+real `pg` package via Node's built-in `node:test` module mocking
+(`apps/api/src/verify-postgres-adapter.mjs`, `npm run verify:postgres` from `apps/api`) — this
+exercises the actual `db.ts` → `db-postgres.ts` → `repo.ts` code path, not a reimplementation
+of it. Confirmed: all 12 migrations apply (against a fixture copy with the payslip-immutability
+trigger stripped — see below), money round-trips as a real JS number end to end (not a string
+— the specific risk the money/timestamp design deviation above exists to avoid), `ON CONFLICT
+DO NOTHING` behaves as a no-op on a second call, `sort_order` preserves insertion order, and a
+transaction's nested calls share one connection (the property P0-7 depends on).
+
+Three things pg-mem's SQL engine could not verify, each confirmed via an isolated repro
+against pg-mem directly (zero involvement of this project's code) before concluding the gap
+was pg-mem's, not this migration's:
+
+- `CREATE TRIGGER ... EXECUTE FUNCTION` — pg-mem's parser doesn't implement `CREATE TRIGGER`
+  at all. Standard, valid PostgreSQL syntax; the real migration is untouched, only the pg-mem
+  test fixture strips it.
+- `IS NOT DISTINCT FROM` — pg-mem's parser doesn't implement this operator; the query fails to
+  *parse*, not just execute oddly. Standard SQL, already verified against `node:sqlite`.
+- `ROLLBACK` actually reverting a write — confirmed broken in pg-mem via a minimal repro (raw
+  pg-mem `Pool`/`Client`, no project code involved): a value updated then rolled back was still
+  changed afterward, even read via a fresh connection. `pgTransaction()` in `db-postgres.ts`
+  follows the standard `node-postgres` transaction idiom (dedicated client, `BEGIN` / `COMMIT`
+  on success / `ROLLBACK` + rethrow on error / always release) — correct by code review, and
+  the identical guarantee already holds on the SQLite path per this session's smoke checks.
+
+**Follow-up, not yet done:** spot-check real rollback behavior against the live Render
+PostgreSQL instance once provisioned, by re-running `smoke.mjs`'s P0-7 concurrent-approval
+check with `DATABASE_URL` set. This is the one property this pass could not verify by any
+means short of a real PostgreSQL server.
+
+### Deployment
+
+`render.yaml` gained a `databases:` block (Render managed PostgreSQL, free tier) wired to the
+API service via `DATABASE_URL`. `seed.ts` gained a guard: seeding only runs against an empty
+database when `DATABASE_URL` is set, so a service restart no longer silently erases real
+Postgres data the way the old SQLite-only setup's unconditional reseed-on-boot did (that
+behavior was deliberate for SQLite, whose Render disk is ephemeral anyway — it is not correct
+for a database meant to persist).
+
+### Deliberately not done this pass
+
+Row-Level Security (tenant isolation's second, defense-in-depth control) and the
+`EXCLUDE USING gist` leave-overlap constraint (P0-7's second control) — both specified in
+`docs/03-data-model.md` §3, both still open, annotated there rather than closed out
+silently. Both primary controls (the `Repo` class's `organisation_id` scoping; the
+approval-transaction balance check) are unchanged, still enforced, and confirmed still
+holding against the Postgres-backed code path by the existing NFR-14 and P0-7 checks in
+`smoke.mjs`/`bughunt.mjs`. Object storage for documents/CVs (moving `BYTEA` content to an
+S3-compatible store) — floated as a future idea in `migrations/006_employee_documents.sql`'s
+own comment, not a requirement of "add a real database," and a materially bigger, separate
+decision (new external service, new upload code path).
+
+**Re-verified:** full regression on the SQLite path after every conversion (typecheck across
+the whole workspace — 0 errors — plus a fresh reseed, 107 unit tests, 20 smoke checks
+including P0-7, 57 bughunt checks with 0 defects, and both job scripts run for real) to
+confirm the async conversion changed nothing observable about existing behavior, plus the
+pg-mem-backed PostgreSQL verification described above.

@@ -51,7 +51,7 @@ import './jobs/scoreAll.js';
 import { requireFeature, subscriptionOf } from './entitlement.js';
 import { explainAttritionScore, AiNotConfiguredError, type ChatTurn } from './aiExplain.js';
 
-openDb();
+await openDb();
 
 const app = express();
 app.use(cors());
@@ -66,28 +66,16 @@ const repoOf = (req: Request): Repo => {
   return new Repo(p.organisationId, p.userId);
 };
 
-/** Small wrapper so a thrown error becomes a clean 400 rather than an unhandled rejection. */
+/** Every route is async now that the DB layer can be backed by SQLite or PostgreSQL
+ *  (ADR-009) -- a thrown/rejected error becomes a clean response via Express's error
+ *  middleware instead of an unhandled rejection. `asyncHandler` is kept as an alias; some
+ *  routes below still spell it that way from when only a couple of routes were async. */
 const handler =
-  (fn: (req: Request, res: Response) => void) =>
-  (req: Request, res: Response, next: NextFunction): void => {
-    try {
-      fn(req, res);
-    } catch (err) {
-      next(err);
-    }
-  };
-
-/**
- * Same idea as `handler`, but for the one route in this API that isn't purely synchronous
- * (better-sqlite3 and bcrypt are sync everywhere else). A plain try/catch around an async
- * function only catches what happens before its first `await` — a rejection after that
- * would otherwise become an unhandled rejection instead of a clean error response.
- */
-const asyncHandler =
   (fn: (req: Request, res: Response) => Promise<void>) =>
   (req: Request, res: Response, next: NextFunction): void => {
     fn(req, res).catch(next);
   };
+const asyncHandler = handler;
 
 /* ================================== auth ================================== */
 
@@ -103,7 +91,7 @@ app.post(
       return;
     }
 
-    const user = one(
+    const user = await one(
       `SELECT u.*, e.id AS employee_id FROM app_user u
          LEFT JOIN employee e ON e.user_id = u.id
         WHERE u.email = ?`,
@@ -127,7 +115,7 @@ app.post(
 
     res.json({
       accessToken: issueAccessToken(principal),
-      refreshToken: issueRefreshToken(principal.userId, principal.organisationId),
+      refreshToken: await issueRefreshToken(principal.userId, principal.organisationId),
       user: { email, role: principal.role, employeeId: principal.employeeId },
     });
   }),
@@ -135,16 +123,16 @@ app.post(
 
 app.post(
   '/api/auth/refresh',
-  handler((req, res) => {
+  handler(async (req, res) => {
     const { refreshToken } = z.object({ refreshToken: z.string() }).parse(req.body);
-    const principal = consumeRefreshToken(refreshToken);
+    const principal = await consumeRefreshToken(refreshToken);
     if (!principal) {
       res.status(401).json({ error: 'Invalid or revoked refresh token' });
       return;
     }
     res.json({
       accessToken: issueAccessToken(principal),
-      refreshToken: issueRefreshToken(principal.userId, principal.organisationId),
+      refreshToken: await issueRefreshToken(principal.userId, principal.organisationId),
     });
   }),
 );
@@ -152,8 +140,8 @@ app.post(
 app.post(
   '/api/auth/logout',
   authenticate,
-  handler((req, res) => {
-    const n = revokeAllSessions(req.principal!.userId);
+  handler(async (req, res) => {
+    const n = await revokeAllSessions(req.principal!.userId);
     res.json({ revokedSessions: n });
   }),
 );
@@ -162,9 +150,9 @@ app.post(
 // 30 minutes, single-use (all enforced in auth.ts's token functions).
 app.post(
   '/api/auth/forgot-password',
-  handler((req, res) => {
+  handler(async (req, res) => {
     const { email } = z.object({ email: z.string().email() }).parse(req.body);
-    const user = one('SELECT id, is_active FROM app_user WHERE email = ?', email);
+    const user = await one('SELECT id, is_active FROM app_user WHERE email = ?', email);
 
     // Prototype shortcut: no email provider is configured anywhere in this project (no
     // SMTP/API-key secret exists), so the token a real deployment would email is returned
@@ -172,7 +160,7 @@ app.post(
     // email provider (e.g. Resend, SES) and never put it in an HTTP response.
     let demoResetToken: string | undefined;
     if (user && user.is_active) {
-      demoResetToken = issuePasswordResetToken(String(user.id));
+      demoResetToken = await issuePasswordResetToken(String(user.id));
     }
 
     // Same response whether or not the email is registered — do not confirm which
@@ -188,16 +176,16 @@ app.post(
       .object({ token: z.string().min(1), password: z.string().min(8) })
       .parse(req.body);
 
-    const userId = consumePasswordResetToken(token);
+    const userId = await consumePasswordResetToken(token);
     if (!userId) {
       res.status(400).json({ error: 'This reset link is invalid, expired, or already used.' });
       return;
     }
 
-    run('UPDATE app_user SET password_hash = ? WHERE id = ?', await hashPassword(password), userId);
+    await run('UPDATE app_user SET password_hash = ? WHERE id = ?', await hashPassword(password), userId);
     // A password reset must kill every existing session — the old password may be
     // compromised, which is presumably why a reset was requested at all.
-    revokeAllSessions(userId);
+    await revokeAllSessions(userId);
     res.json({ ok: true });
   }),
 );
@@ -214,24 +202,24 @@ app.use('/api', (req, res, next) => {
 
 app.get(
   '/api/employees',
-  handler((req, res) => {
+  handler(async (req, res) => {
     // BUG-06 / US-11 (F2.4): ?q= was accepted and silently ignored, returning the whole
     // directory. Search now filters on name, code, designation and department.
     const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
-    res.json(repoOf(req).listEmployees(q || undefined));
+    res.json(await repoOf(req).listEmployees(q || undefined));
   }),
 );
 
 app.get(
   '/api/employees/:id',
-  handler((req, res) => {
+  handler(async (req, res) => {
     const repo = repoOf(req);
-    const emp = repo.getEmployee(req.params.id!);
+    const emp = await repo.getEmployee(req.params.id!);
     if (!emp) {
       res.status(404).json({ error: 'Not found' });
       return;
     }
-    res.json({ ...emp, balances: repo.balances(String(emp.id)) });
+    res.json({ ...emp, balances: await repo.balances(String(emp.id)) });
   }),
 );
 
@@ -249,7 +237,7 @@ function canSeeEmployeeDocuments(req: Request, employeeId: string): boolean {
 app.post(
   '/api/employees/:id/documents',
   requireRole('HR_ADMIN'),
-  handler((req, res) => {
+  handler(async (req, res) => {
     const { category, filename, mimeType, contentBase64 } = z
       .object({
         category: z.enum(['APPOINTMENT_LETTER', 'NID_COPY', 'CERTIFICATE', 'OTHER']),
@@ -269,34 +257,34 @@ app.post(
       return;
     }
     const repo = repoOf(req);
-    if (!repo.getEmployee(req.params.id!)) {
+    if (!(await repo.getEmployee(req.params.id!))) {
       res.status(404).json({ error: 'Not found' });
       return;
     }
-    const id = repo.addEmployeeDocument({ employeeId: req.params.id!, category, filename, mimeType, content });
+    const id = await repo.addEmployeeDocument({ employeeId: req.params.id!, category, filename, mimeType, content });
     res.status(201).json({ id });
   }),
 );
 
 app.get(
   '/api/employees/:id/documents',
-  handler((req, res) => {
+  handler(async (req, res) => {
     if (!canSeeEmployeeDocuments(req, req.params.id!)) {
       res.status(403).json({ error: 'Not permitted' });
       return;
     }
-    res.json(repoOf(req).listEmployeeDocuments(req.params.id!));
+    res.json(await repoOf(req).listEmployeeDocuments(req.params.id!));
   }),
 );
 
 app.get(
   '/api/employees/:id/documents/:docId',
-  handler((req, res) => {
+  handler(async (req, res) => {
     if (!canSeeEmployeeDocuments(req, req.params.id!)) {
       res.status(403).json({ error: 'Not permitted' });
       return;
     }
-    const doc = repoOf(req).getEmployeeDocument(req.params.docId!);
+    const doc = await repoOf(req).getEmployeeDocument(req.params.docId!);
     if (!doc || doc.employee_id !== req.params.id) {
       res.status(404).json({ error: 'Not found' });
       return;
@@ -310,34 +298,34 @@ app.get(
 // F4.4 / US-21+US-22.
 app.get(
   '/api/notifications',
-  handler((req, res) => {
-    res.json(repoOf(req).listNotifications(req.principal!.userId));
+  handler(async (req, res) => {
+    res.json(await repoOf(req).listNotifications(req.principal!.userId));
   }),
 );
 
 app.post(
   '/api/notifications/read',
-  handler((req, res) => {
+  handler(async (req, res) => {
     const { ids } = z.object({ ids: z.array(z.string()).optional() }).parse(req.body ?? {});
-    repoOf(req).markNotificationsRead(req.principal!.userId, ids);
+    await repoOf(req).markNotificationsRead(req.principal!.userId, ids);
     res.json({ ok: true });
   }),
 );
 
 app.get(
   '/api/me',
-  handler((req, res) => {
+  handler(async (req, res) => {
     const p = req.principal!;
     const repo = repoOf(req);
     if (!p.employeeId) {
       res.json({ principal: p, employee: null });
       return;
     }
-    const emp = repo.getEmployee(p.employeeId);
+    const emp = await repo.getEmployee(p.employeeId);
     res.json({
       principal: p,
       employee: emp,
-      balances: repo.balances(p.employeeId),
+      balances: await repo.balances(p.employeeId),
     });
   }),
 );
@@ -348,7 +336,7 @@ app.get(
 // bypassed.
 app.post(
   '/api/me/contact',
-  handler((req, res) => {
+  handler(async (req, res) => {
     const p = req.principal!;
     if (!p.employeeId) {
       res.status(400).json({ error: 'No employee record linked to this user' });
@@ -362,8 +350,8 @@ app.post(
       })
       .parse(req.body);
 
-    repoOf(req).updateOwnContact(p.employeeId, fields);
-    res.json(repoOf(req).getEmployee(p.employeeId));
+    await repoOf(req).updateOwnContact(p.employeeId, fields);
+    res.json(await repoOf(req).getEmployee(p.employeeId));
   }),
 );
 
@@ -371,7 +359,7 @@ app.post(
 
 app.post(
   '/api/attendance/check-in',
-  handler((req, res) => {
+  handler(async (req, res) => {
     const p = req.principal!;
     if (!p.employeeId) {
       res.status(400).json({ error: 'No employee record linked to this user' });
@@ -385,7 +373,8 @@ app.post(
 
     // BUG-08: a second check-in used to silently overwrite the original timestamp,
     // destroying the evidence the lateness signal and payroll both depend on.
-    const today = repo.attendanceBetween(p.employeeId, workDate, workDate)[0];
+    const todayRows = await repo.attendanceBetween(p.employeeId, workDate, workDate);
+    const today = todayRows[0];
     if (today?.check_in) {
       res.status(409).json({
         error: 'Already checked in today',
@@ -397,22 +386,22 @@ app.post(
 
     // BUG-07: office start time is per-department (class diagram: Department.officeStartTime),
     // not a global 09:00.
-    const SHIFT_START = repo.officeStartMinutesFor(p.employeeId);
+    const SHIFT_START = await repo.officeStartMinutesFor(p.employeeId);
     const lateMinutes = Math.max(0, minutes - SHIFT_START);
 
-    repo.upsertAttendance(p.employeeId, workDate, {
+    await repo.upsertAttendance(p.employeeId, workDate, {
       check_in: now.toISOString(),
       late_minutes: lateMinutes,
       status: 'PRESENT',
     });
-    repo.audit('CHECK_IN', 'attendance', p.employeeId, { workDate, lateMinutes });
+    await repo.audit('CHECK_IN', 'attendance', p.employeeId, { workDate, lateMinutes });
     res.json({ workDate, lateMinutes, checkIn: now.toISOString() });
   }),
 );
 
 app.post(
   '/api/attendance/check-out',
-  handler((req, res) => {
+  handler(async (req, res) => {
     const p = req.principal!;
     if (!p.employeeId) {
       res.status(400).json({ error: 'No employee record linked to this user' });
@@ -421,14 +410,15 @@ app.post(
     const now = new Date();
     const workDate = businessDate(now);
     const repo = repoOf(req);
-    const existing = repo.attendanceBetween(p.employeeId, workDate, workDate)[0];
+    const existingRows = await repo.attendanceBetween(p.employeeId, workDate, workDate);
+    const existing = existingRows[0];
     if (!existing?.check_in) {
       res.status(400).json({ error: 'No check-in recorded for today' });
       return;
     }
     const worked = (now.getTime() - new Date(String(existing.check_in)).getTime()) / 3_600_000;
     const otHours = Math.max(0, Math.round((worked - 8) * 100) / 100);
-    repo.upsertAttendance(p.employeeId, workDate, {
+    await repo.upsertAttendance(p.employeeId, workDate, {
       check_out: now.toISOString(),
       ot_hours: otHours,
     });
@@ -447,7 +437,7 @@ app.post(
 app.get(
   '/api/attendance/grid',
   requireRole('MANAGER', 'HR_ADMIN'),
-  handler((req, res) => {
+  handler(async (req, res) => {
     const { from, to } = z
       .object({ from: z.string(), to: z.string() })
       .parse({ from: req.query.from, to: req.query.to });
@@ -457,26 +447,26 @@ app.get(
 
     // US-04: "A Manager opening the attendance report sees only their own department."
     if (p.role === 'MANAGER') {
-      const me = p.employeeId ? repo.getEmployee(p.employeeId) : undefined;
+      const me = p.employeeId ? await repo.getEmployee(p.employeeId) : undefined;
       const departmentId = me?.department_id ? String(me.department_id) : null;
-      res.json(repo.attendanceGrid(from, to, { departmentId }));
+      res.json(await repo.attendanceGrid(from, to, { departmentId }));
       return;
     }
 
-    res.json(repo.attendanceGrid(from, to));
+    res.json(await repo.attendanceGrid(from, to));
   }),
 );
 
 app.get(
   '/api/attendance/mine',
-  handler((req, res) => {
+  handler(async (req, res) => {
     const p = req.principal!;
     const { from, to } = req.query as { from?: string; to?: string };
     if (!p.employeeId || !from || !to) {
       res.status(400).json({ error: 'from and to are required' });
       return;
     }
-    res.json(repoOf(req).attendanceBetween(p.employeeId, from, to));
+    res.json(await repoOf(req).attendanceBetween(p.employeeId, from, to));
   }),
 );
 
@@ -484,22 +474,22 @@ app.get(
 
 app.get(
   '/api/leave/requests',
-  handler((req, res) => {
+  handler(async (req, res) => {
     const p = req.principal!;
     const repo = repoOf(req);
     // An employee sees only their own; managers and HR see the queue.
     if (p.role === 'EMPLOYEE') {
-      res.json(repo.leaveRequests({ employeeId: p.employeeId ?? '__none__' }));
+      res.json(await repo.leaveRequests({ employeeId: p.employeeId ?? '__none__' }));
       return;
     }
     const status = typeof req.query.status === 'string' ? req.query.status : undefined;
-    res.json(repo.leaveRequests(status ? { status } : {}));
+    res.json(await repo.leaveRequests(status ? { status } : {}));
   }),
 );
 
 app.get(
   '/api/leave/balances',
-  handler((req, res) => {
+  handler(async (req, res) => {
     const p = req.principal!;
     const employeeId = (req.query.employeeId as string) ?? p.employeeId;
     if (!employeeId) {
@@ -510,13 +500,13 @@ app.get(
       res.status(403).json({ error: 'Cannot view another employee’s balances' });
       return;
     }
-    res.json(repoOf(req).balances(employeeId));
+    res.json(await repoOf(req).balances(employeeId));
   }),
 );
 
 app.post(
   '/api/leave/requests',
-  handler((req, res) => {
+  handler(async (req, res) => {
     const body = z
       .object({
         leaveType: z.enum(['EARNED', 'CASUAL', 'SICK', 'FESTIVAL', 'MATERNITY', 'LWP']),
@@ -545,7 +535,7 @@ app.post(
 
     const days = requestedDays(body.startDate, body.endDate);
     const repo = repoOf(req);
-    const id = repo.createLeaveRequest({
+    const id = await repo.createLeaveRequest({
       employeeId: p.employeeId,
       leaveType: body.leaveType as LeaveType,
       startDate: body.startDate,
@@ -554,13 +544,13 @@ app.post(
       status: 'PENDING',
       reason: body.reason,
     });
-    repo.audit('LEAVE_REQUESTED', 'leave_request', id, body);
+    await repo.audit('LEAVE_REQUESTED', 'leave_request', id, body);
 
     // F4.4 / US-22: "notified when a request enters my queue." Only the direct manager --
     // the story is written from the Manager's perspective, not "every HR admin too."
-    const managerUserId = repo.managerUserIdFor(p.employeeId);
+    const managerUserId = await repo.managerUserIdFor(p.employeeId);
     if (managerUserId) {
-      repo.notify(
+      await repo.notify(
         managerUserId,
         'LEAVE_PENDING',
         `A ${body.leaveType.toLowerCase()} leave request (${days} day${days === 1 ? '' : 's'}) is waiting for your decision.`,
@@ -585,7 +575,7 @@ app.post(
 app.post(
   '/api/leave/requests/:id/decision',
   requireRole('MANAGER', 'HR_ADMIN'),
-  handler((req, res) => {
+  handler(async (req, res) => {
     const { decision, reason } = z
       .object({ decision: z.enum(['APPROVE', 'REJECT']), reason: z.string().optional() })
       .parse(req.body);
@@ -601,13 +591,14 @@ app.post(
 
     // F4.4 / US-21+US-22: notify the employee of the outcome, and clear the manager's
     // "waiting for you" notification for this request -- both decisions close it out.
-    function notifyDecision(request: { employeeId: string; leaveType: string }, status: 'APPROVED' | 'REJECTED') {
-      repo.clearPendingNotificationsFor('leave_request', requestId);
-      const employeeUserId = repo.getEmployee(request.employeeId)?.user_id;
+    async function notifyDecision(request: { employeeId: string; leaveType: string }, status: 'APPROVED' | 'REJECTED') {
+      await repo.clearPendingNotificationsFor('leave_request', requestId);
+      const employee = await repo.getEmployee(request.employeeId);
+      const employeeUserId = employee?.user_id;
       if (employeeUserId) {
         const verb = status === 'APPROVED' ? 'approved' : 'rejected';
         const reasonSuffix = status === 'REJECTED' && reason ? ` Reason: ${reason}` : '';
-        repo.notify(
+        await repo.notify(
           String(employeeUserId),
           'LEAVE_DECIDED',
           `Your ${request.leaveType.toLowerCase()} leave request was ${verb}.${reasonSuffix}`,
@@ -617,20 +608,20 @@ app.post(
       }
     }
 
-    const result = transaction(() => {
-      const request = repo.getLeaveRequest(requestId);
+    const result = await transaction(async () => {
+      const request = await repo.getLeaveRequest(requestId);
       if (!request) return { status: 404 as const, body: { error: 'Not found' } };
 
       if (decision === 'REJECT') {
-        repo.setLeaveStatus(requestId, 'REJECTED', req.principal!.userId, reason);
-        repo.audit('LEAVE_REJECTED', 'leave_request', requestId, { reason });
-        notifyDecision(request, 'REJECTED');
+        await repo.setLeaveStatus(requestId, 'REJECTED', req.principal!.userId, reason);
+        await repo.audit('LEAVE_REJECTED', 'leave_request', requestId, { reason });
+        await notifyDecision(request, 'REJECTED');
         return { status: 200 as const, body: { status: 'REJECTED' } };
       }
 
       // Re-read the ledger INSIDE the transaction — this is the whole point.
-      const ledger = repo.ledgerFor(request.employeeId);
-      const approved = repo.approvedLeaveFor(request.employeeId);
+      const ledger = await repo.ledgerFor(request.employeeId);
+      const approved = await repo.approvedLeaveFor(request.employeeId);
       const check = checkApproval(request, ledger, approved);
 
       if (!check.ok) {
@@ -640,9 +631,9 @@ app.post(
         };
       }
 
-      repo.setLeaveStatus(requestId, 'APPROVED', req.principal!.userId);
+      await repo.setLeaveStatus(requestId, 'APPROVED', req.principal!.userId);
       if (request.leaveType !== 'LWP') {
-        repo.appendLedger(
+        await repo.appendLedger(
           request.employeeId,
           request.leaveType,
           -request.days,
@@ -651,11 +642,11 @@ app.post(
           requestId,
         );
       }
-      repo.audit('LEAVE_APPROVED', 'leave_request', requestId, {
+      await repo.audit('LEAVE_APPROVED', 'leave_request', requestId, {
         balanceBefore: check.balanceBefore,
         balanceAfter: check.balanceAfter,
       });
-      notifyDecision(request, 'APPROVED');
+      await notifyDecision(request, 'APPROVED');
       return {
         status: 200 as const,
         body: { status: 'APPROVED', balanceAfter: check.balanceAfter },
@@ -670,7 +661,7 @@ app.post(
 
 app.get(
   '/api/payroll/payslips',
-  handler((req, res) => {
+  handler(async (req, res) => {
     const p = req.principal!;
     const employeeId = (req.query.employeeId as string) ?? p.employeeId;
     if (!employeeId) {
@@ -681,15 +672,15 @@ app.get(
       res.status(403).json({ error: 'Cannot view another employee’s payslips' });
       return;
     }
-    res.json(repoOf(req).payslipsFor(employeeId));
+    res.json(await repoOf(req).payslipsFor(employeeId));
   }),
 );
 
 app.get(
   '/api/payroll/payslips/:id',
-  handler((req, res) => {
+  handler(async (req, res) => {
     const p = req.principal!;
-    const found = repoOf(req).payslipWithLines(req.params.id!);
+    const found = await repoOf(req).payslipWithLines(req.params.id!);
     if (!found) {
       res.status(404).json({ error: 'Not found' });
       return;
@@ -714,9 +705,9 @@ const PAYSLIP_MONTHS = [
  */
 app.get(
   '/api/payroll/payslips/:id/pdf',
-  handler((req, res) => {
+  handler(async (req, res) => {
     const p = req.principal!;
-    const found = repoOf(req).payslipForPdf(req.params.id!);
+    const found = await repoOf(req).payslipForPdf(req.params.id!);
     if (!found) {
       res.status(404).json({ error: 'Not found' });
       return;
@@ -825,7 +816,7 @@ app.get(
 app.post(
   '/api/payroll/runs',
   requireRole('HR_ADMIN'),
-  handler((req, res) => {
+  handler(async (req, res) => {
     const { year, month } = z
       .object({ year: z.number().int(), month: z.number().int().min(1).max(12) })
       .parse(req.body);
@@ -850,7 +841,7 @@ app.post(
  */
 app.get(
   '/api/jobs/:id',
-  handler((req, res) => {
+  handler(async (req, res) => {
     const status = jobStatus(req.params.id!);
     if (!status || status.payload.organisationId !== req.principal!.organisationId) {
       res.status(404).json({ error: 'Unknown job' });
@@ -864,12 +855,12 @@ app.get(
 app.get(
   '/api/payroll/preview',
   requireRole('HR_ADMIN'),
-  handler((req, res) => {
+  handler(async (req, res) => {
     const employeeId = String(req.query.employeeId ?? '');
     const year = Number(req.query.year);
     const month = Number(req.query.month);
     const repo = repoOf(req);
-    const structures = repo.salaryStructures(employeeId);
+    const structures = await repo.salaryStructures(employeeId);
     if (structures.length === 0) {
       res.status(404).json({ error: 'No salary structure for this employee' });
       return;
@@ -888,11 +879,11 @@ app.get(
  */
 app.get(
   '/api/subscription',
-  handler((req, res) => {
+  handler(async (req, res) => {
     const p = req.principal!;
-    const subscription = subscriptionOf(p.organisationId);
+    const subscription = await subscriptionOf(p.organisationId);
     const today = businessDate(new Date());
-    const org = repoOf(req).subscription();
+    const org = await repoOf(req).subscription();
     res.json({
       organisation: org?.name ?? null,
       tier: subscription.tier,
@@ -916,10 +907,10 @@ const TIER_SCHEMA = z.enum(['STARTER', 'GROWTH', 'ENTERPRISE']);
 app.get(
   '/api/subscription/preview-change',
   requireRole('HR_ADMIN'),
-  handler((req, res) => {
+  handler(async (req, res) => {
     const newTier = TIER_SCHEMA.parse(req.query.tier);
     try {
-      res.json(repoOf(req).previewSubscriptionChange(newTier));
+      res.json(await repoOf(req).previewSubscriptionChange(newTier));
     } catch (err) {
       res.status(400).json({ error: (err as Error).message });
     }
@@ -929,9 +920,9 @@ app.get(
 app.post(
   '/api/subscription/change',
   requireRole('HR_ADMIN'),
-  handler((req, res) => {
+  handler(async (req, res) => {
     const { tier } = z.object({ tier: TIER_SCHEMA }).parse(req.body);
-    const result = repoOf(req).changeSubscription(tier, req.principal!.userId);
+    const result = await repoOf(req).changeSubscription(tier, req.principal!.userId);
     if (!result.ok) {
       const message =
         result.error === 'SAME_TIER'
@@ -947,15 +938,15 @@ app.post(
 app.get(
   '/api/subscription/invoices',
   requireRole('HR_ADMIN'),
-  handler((req, res) => {
-    res.json(repoOf(req).listInvoices());
+  handler(async (req, res) => {
+    res.json(await repoOf(req).listInvoices());
   }),
 );
 
 app.get(
   '/api/departments',
-  handler((req, res) => {
-    res.json(repoOf(req).departments());
+  handler(async (req, res) => {
+    res.json(await repoOf(req).departments());
   }),
 );
 
@@ -973,9 +964,9 @@ app.get(
   '/api/attrition/at-risk',
   requireRole('HR_ADMIN'),
   requireFeature('attrition_full'),
-  handler((req, res) => {
+  handler(async (req, res) => {
     const limit = Number(req.query.limit ?? 20);
-    res.json(repoOf(req).latestScores(limit));
+    res.json(await repoOf(req).latestScores(limit));
   }),
 );
 
@@ -983,8 +974,8 @@ app.get(
   '/api/attrition/scores/:id',
   requireRole('HR_ADMIN'),
   requireFeature('attrition_full'),
-  handler((req, res) => {
-    const found = repoOf(req).scoreWithContributions(req.params.id!);
+  handler(async (req, res) => {
+    const found = await repoOf(req).scoreWithContributions(req.params.id!);
     if (!found) {
       res.status(404).json({ error: 'Not found' });
       return;
@@ -1029,7 +1020,7 @@ app.post(
       return;
     }
 
-    const found = repoOf(req).scoreExplainContext(req.params.id!);
+    const found = await repoOf(req).scoreExplainContext(req.params.id!);
     if (!found) {
       res.status(404).json({ error: 'Not found' });
       return;
@@ -1052,7 +1043,7 @@ app.post(
   '/api/attrition/runs',
   requireRole('HR_ADMIN'),
   requireFeature('attrition_full'),
-  handler((req, res) => {
+  handler(async (req, res) => {
     const p = req.principal!;
     const jobId = enqueue('ATTRITION_SCORING', {
       organisationId: p.organisationId,
@@ -1066,14 +1057,15 @@ app.post(
 
 const QUARTER_RE = /^\d{4}-Q[1-4]$/;
 
-function isManagerOf(repo: Repo, managerEmployeeId: string, targetEmployeeId: string): boolean {
-  return repo.directReportsOf(managerEmployeeId).some((e) => String(e.id) === targetEmployeeId);
+async function isManagerOf(repo: Repo, managerEmployeeId: string, targetEmployeeId: string): Promise<boolean> {
+  const reports = await repo.directReportsOf(managerEmployeeId);
+  return reports.some((e) => String(e.id) === targetEmployeeId);
 }
 
 app.get(
   '/api/okr/objectives',
   requireFeature('okr'),
-  handler((req, res) => {
+  handler(async (req, res) => {
     const p = req.principal!;
     const employeeId = (req.query.employeeId as string) || p.employeeId;
     if (!employeeId) {
@@ -1085,23 +1077,26 @@ app.get(
       res.status(403).json({ error: 'Not your objectives' });
       return;
     }
-    if (p.role === 'MANAGER' && employeeId !== p.employeeId && !isManagerOf(repo, p.employeeId!, employeeId)) {
+    if (p.role === 'MANAGER' && employeeId !== p.employeeId && !(await isManagerOf(repo, p.employeeId!, employeeId))) {
       res.status(403).json({ error: 'Not one of your reports' });
       return;
     }
     const quarter = typeof req.query.quarter === 'string' ? req.query.quarter : undefined;
     // US-31: "Updating a current value recalculates the objective completion score
     // immediately" -- nothing is cached, so completion is just derived here on every read.
-    const withKrs = repo.listObjectives(employeeId, quarter).map((o) => {
-      const found = repo.objectiveWithKeyResults(String(o.id))!;
-      const completion = found.keyResults.length
-        ? found.keyResults.reduce(
-            (sum, kr) => sum + Number(kr.current_value) / Math.max(Number(kr.target_value), 1e-9),
-            0,
-          ) / found.keyResults.length
-        : 0;
-      return { ...o, keyResults: found.keyResults, completionPct: Math.round(completion * 100) };
-    });
+    const objectives = await repo.listObjectives(employeeId, quarter);
+    const withKrs = await Promise.all(
+      objectives.map(async (o) => {
+        const found = (await repo.objectiveWithKeyResults(String(o.id)))!;
+        const completion = found.keyResults.length
+          ? found.keyResults.reduce(
+              (sum, kr) => sum + Number(kr.current_value) / Math.max(Number(kr.target_value), 1e-9),
+              0,
+            ) / found.keyResults.length
+          : 0;
+        return { ...o, keyResults: found.keyResults, completionPct: Math.round(completion * 100) };
+      }),
+    );
     res.json(withKrs);
   }),
 );
@@ -1110,7 +1105,7 @@ app.post(
   '/api/okr/objectives',
   requireFeature('okr'),
   requireRole('MANAGER', 'HR_ADMIN'),
-  handler((req, res) => {
+  handler(async (req, res) => {
     const body = z
       .object({
         employeeId: z.string().min(1),
@@ -1124,19 +1119,19 @@ app.post(
       .parse(req.body);
     const p = req.principal!;
     const repo = repoOf(req);
-    if (p.role === 'MANAGER' && !isManagerOf(repo, p.employeeId!, body.employeeId)) {
+    if (p.role === 'MANAGER' && !(await isManagerOf(repo, p.employeeId!, body.employeeId))) {
       res.status(403).json({ error: 'Not one of your reports' });
       return;
     }
     // US-30: "Objective weights for one employee in one quarter total 100%."
-    const currentTotal = repo.objectiveWeightTotal(body.employeeId, body.quarter);
+    const currentTotal = await repo.objectiveWeightTotal(body.employeeId, body.quarter);
     if (currentTotal + body.weightPct > 100) {
       res.status(400).json({
         error: `Objective weights for this employee this quarter cannot exceed 100% (already ${currentTotal}%)`,
       });
       return;
     }
-    const id = repo.createObjective(body);
+    const id = await repo.createObjective(body);
     res.status(201).json({ id });
   }),
 );
@@ -1144,13 +1139,13 @@ app.post(
 app.post(
   '/api/okr/key-results/:id/progress',
   requireFeature('okr'),
-  handler((req, res) => {
+  handler(async (req, res) => {
     const { currentValue, comment } = z
       .object({ currentValue: z.number(), comment: z.string().optional() })
       .parse(req.body);
     const p = req.principal!;
     const repo = repoOf(req);
-    const kr = repo.keyResultWithObjective(req.params.id!);
+    const kr = await repo.keyResultWithObjective(req.params.id!);
     if (!kr) {
       res.status(404).json({ error: 'Not found' });
       return;
@@ -1170,7 +1165,7 @@ app.post(
       res.status(400).json({ error: 'A comment is required when progress exceeds the target' });
       return;
     }
-    repo.updateKeyResultProgress(req.params.id!, currentValue, comment);
+    await repo.updateKeyResultProgress(req.params.id!, currentValue, comment);
     res.json({ ok: true });
   }),
 );
@@ -1179,8 +1174,8 @@ app.post(
   '/api/okr/quarters/:quarter/close',
   requireFeature('okr'),
   requireRole('HR_ADMIN'),
-  handler((req, res) => {
-    repoOf(req).closeQuarter(req.params.quarter!);
+  handler(async (req, res) => {
+    await repoOf(req).closeQuarter(req.params.quarter!);
     res.json({ ok: true });
   }),
 );
@@ -1189,7 +1184,7 @@ app.post(
   '/api/okr/review-scores',
   requireFeature('okr'),
   requireRole('MANAGER', 'HR_ADMIN'),
-  handler((req, res) => {
+  handler(async (req, res) => {
     const { employeeId, quarter, score } = z
       .object({
         employeeId: z.string().min(1),
@@ -1199,11 +1194,11 @@ app.post(
       .parse(req.body);
     const p = req.principal!;
     const repo = repoOf(req);
-    if (p.role === 'MANAGER' && !isManagerOf(repo, p.employeeId!, employeeId)) {
+    if (p.role === 'MANAGER' && !(await isManagerOf(repo, p.employeeId!, employeeId))) {
       res.status(403).json({ error: 'Not one of your reports' });
       return;
     }
-    const id = repo.upsertReviewScore({ employeeId, quarter, score });
+    const id = await repo.upsertReviewScore({ employeeId, quarter, score });
     res.status(201).json({ id });
   }),
 );
@@ -1212,8 +1207,8 @@ app.post(
   '/api/okr/review-scores/:id/publish',
   requireFeature('okr'),
   requireRole('MANAGER', 'HR_ADMIN'),
-  handler((req, res) => {
-    const ok = repoOf(req).publishReviewScore(req.params.id!);
+  handler(async (req, res) => {
+    const ok = await repoOf(req).publishReviewScore(req.params.id!);
     if (!ok) {
       res.status(404).json({ error: 'Not found' });
       return;
@@ -1225,7 +1220,7 @@ app.post(
 app.get(
   '/api/okr/review-scores',
   requireFeature('okr'),
-  handler((req, res) => {
+  handler(async (req, res) => {
     const p = req.principal!;
     const employeeId = (req.query.employeeId as string) || p.employeeId;
     if (!employeeId) {
@@ -1237,13 +1232,13 @@ app.get(
       res.status(403).json({ error: 'Not your review history' });
       return;
     }
-    if (p.role === 'MANAGER' && employeeId !== p.employeeId && !isManagerOf(repo, p.employeeId!, employeeId)) {
+    if (p.role === 'MANAGER' && employeeId !== p.employeeId && !(await isManagerOf(repo, p.employeeId!, employeeId))) {
       res.status(403).json({ error: 'Not one of your reports' });
       return;
     }
     // US-33: an employee sees only published scores; a manager/HR (who records them) sees all.
     const publishedOnly = p.role === 'EMPLOYEE';
-    res.json(repo.reviewScoresFor(employeeId, publishedOnly));
+    res.json(await repo.reviewScoresFor(employeeId, publishedOnly));
   }),
 );
 
@@ -1252,8 +1247,8 @@ app.get(
 app.get(
   '/api/vacancies',
   requireFeature('ats'),
-  handler((req, res) => {
-    res.json(repoOf(req).listVacancies());
+  handler(async (req, res) => {
+    res.json(await repoOf(req).listVacancies());
   }),
 );
 
@@ -1261,7 +1256,7 @@ app.post(
   '/api/vacancies',
   requireFeature('ats'),
   requireRole('HR_ADMIN'),
-  handler((req, res) => {
+  handler(async (req, res) => {
     const { title, requirements, deadline } = z
       .object({
         title: z.string().min(1),
@@ -1269,7 +1264,7 @@ app.post(
         deadline: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
       })
       .parse(req.body);
-    const id = repoOf(req).createVacancy({ title, requirements, deadline });
+    const id = await repoOf(req).createVacancy({ title, requirements, deadline });
     res.status(201).json({ id });
   }),
 );
@@ -1278,9 +1273,9 @@ app.get(
   '/api/candidates',
   requireFeature('ats'),
   requireRole('MANAGER', 'HR_ADMIN'),
-  handler((req, res) => {
+  handler(async (req, res) => {
     const vacancyId = typeof req.query.vacancyId === 'string' ? req.query.vacancyId : undefined;
-    res.json(repoOf(req).listCandidates(vacancyId));
+    res.json(await repoOf(req).listCandidates(vacancyId));
   }),
 );
 
@@ -1288,17 +1283,17 @@ app.get(
   '/api/candidates/:id',
   requireFeature('ats'),
   requireRole('MANAGER', 'HR_ADMIN'),
-  handler((req, res) => {
+  handler(async (req, res) => {
     const repo = repoOf(req);
-    const candidate = repo.candidate(req.params.id!);
+    const candidate = await repo.candidate(req.params.id!);
     if (!candidate) {
       res.status(404).json({ error: 'Not found' });
       return;
     }
     res.json({
       candidate,
-      stageHistory: repo.candidateStageHistory(req.params.id!),
-      evaluations: repo.candidateEvaluations(req.params.id!),
+      stageHistory: await repo.candidateStageHistory(req.params.id!),
+      evaluations: await repo.candidateEvaluations(req.params.id!),
     });
   }),
 );
@@ -1308,8 +1303,8 @@ app.get(
   '/api/candidates/:id/cv',
   requireFeature('ats'),
   requireRole('MANAGER', 'HR_ADMIN'),
-  handler((req, res) => {
-    const cv = repoOf(req).candidateCv(req.params.id!);
+  handler(async (req, res) => {
+    const cv = await repoOf(req).candidateCv(req.params.id!);
     if (!cv) {
       res.status(404).json({ error: 'Not found' });
       return;
@@ -1327,14 +1322,14 @@ app.post(
   '/api/candidates/:id/stage',
   requireFeature('ats'),
   requireRole('HR_ADMIN'),
-  handler((req, res) => {
+  handler(async (req, res) => {
     const { toStage, reason } = z
       .object({
         toStage: z.enum(['APPLIED', 'SHORTLISTED', 'INTERVIEW', 'OFFER', 'HIRED', 'REJECTED']),
         reason: z.string().optional(),
       })
       .parse(req.body);
-    const result = repoOf(req).moveCandidateStage(req.params.id!, toStage, reason);
+    const result = await repoOf(req).moveCandidateStage(req.params.id!, toStage, reason);
     if (!result.ok) {
       const status = result.error === 'NOT_FOUND' ? 404 : 400;
       const message =
@@ -1354,7 +1349,7 @@ app.post(
   '/api/candidates/:id/evaluations',
   requireFeature('ats'),
   requireRole('MANAGER', 'HR_ADMIN'),
-  handler((req, res) => {
+  handler(async (req, res) => {
     const { interviewDate, comments, score } = z
       .object({
         interviewDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -1362,7 +1357,7 @@ app.post(
         score: z.number().min(1).max(5),
       })
       .parse(req.body);
-    const result = repoOf(req).addCandidateEvaluation({
+    const result = await repoOf(req).addCandidateEvaluation({
       candidateId: req.params.id!,
       interviewDate,
       comments,
@@ -1387,7 +1382,7 @@ app.post(
   '/api/candidates/:id/convert',
   requireFeature('ats'),
   requireRole('HR_ADMIN'),
-  handler((req, res) => {
+  handler(async (req, res) => {
     const { employeeCode, designation, departmentId, hireDate } = z
       .object({
         employeeCode: z.string().min(1),
@@ -1396,7 +1391,7 @@ app.post(
         hireDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
       })
       .parse(req.body);
-    const result = repoOf(req).convertCandidateToEmployee(req.params.id!, {
+    const result = await repoOf(req).convertCandidateToEmployee(req.params.id!, {
       employeeCode,
       designation,
       departmentId,
@@ -1424,8 +1419,8 @@ app.post(
 
 app.get(
   '/api/public/organisations/:id',
-  handler((req, res) => {
-    const name = publicOrganisationName(req.params.id!);
+  handler(async (req, res) => {
+    const name = await publicOrganisationName(req.params.id!);
     if (!name) {
       res.status(404).json({ error: 'Not found' });
       return;
@@ -1436,21 +1431,21 @@ app.get(
 
 app.get(
   '/api/public/vacancies',
-  handler((req, res) => {
+  handler(async (req, res) => {
     const orgId = typeof req.query.org === 'string' ? req.query.org : '';
     if (!orgId) {
       res.status(400).json({ error: 'org required' });
       return;
     }
-    res.json(publicVacancies(orgId));
+    res.json(await publicVacancies(orgId));
   }),
 );
 
 app.get(
   '/api/public/vacancies/:id',
-  handler((req, res) => {
+  handler(async (req, res) => {
     const orgId = typeof req.query.org === 'string' ? req.query.org : '';
-    const vacancy = orgId ? publicVacancy(orgId, req.params.id!) : undefined;
+    const vacancy = orgId ? await publicVacancy(orgId, req.params.id!) : undefined;
     if (!vacancy) {
       res.status(404).json({ error: 'Not found' });
       return;
@@ -1461,7 +1456,7 @@ app.get(
 
 app.post(
   '/api/public/vacancies/:id/apply',
-  handler((req, res) => {
+  handler(async (req, res) => {
     const { organisationId, fullName, email, phone, cvFilename, cvMimeType, cvContentBase64 } = z
       .object({
         organisationId: z.string().min(1),
@@ -1486,7 +1481,7 @@ app.post(
       return;
     }
 
-    const result = submitApplication({
+    const result = await submitApplication({
       orgId: organisationId,
       vacancyId: req.params.id!,
       fullName,
@@ -1518,11 +1513,12 @@ const MAX_URGENT_NOTICES = 5;
 
 app.get(
   '/api/notices',
-  handler((req, res) => {
+  handler(async (req, res) => {
     const p = req.principal!;
     const isPrivileged = p.role === 'HR_ADMIN' || p.role === 'MANAGER';
-    const notices = repoOf(req).notices(p.employeeId ?? null, isPrivileged);
-    const readIds = p.employeeId ? repoOf(req).readNoticeIdsFor(p.employeeId) : new Set<string>();
+    const repo = repoOf(req);
+    const notices = await repo.notices(p.employeeId ?? null, isPrivileged);
+    const readIds = p.employeeId ? await repo.readNoticeIdsFor(p.employeeId) : new Set<string>();
     res.json(notices.map((n) => ({ ...n, read: readIds.has(String(n.id)) })));
   }),
 );
@@ -1530,7 +1526,7 @@ app.get(
 app.post(
   '/api/notices',
   requireRole('HR_ADMIN'),
-  handler((req, res) => {
+  handler(async (req, res) => {
     const { title, body, audienceType, departmentIds, isUrgent } = z
       .object({
         title: z.string().min(1),
@@ -1546,12 +1542,12 @@ app.post(
       return;
     }
     const repo = repoOf(req);
-    if (isUrgent && repo.urgentNoticeCount() >= MAX_URGENT_NOTICES) {
+    if (isUrgent && (await repo.urgentNoticeCount()) >= MAX_URGENT_NOTICES) {
       res.status(400).json({ error: `At most ${MAX_URGENT_NOTICES} notices can be pinned urgent at once` });
       return;
     }
 
-    const id = repo.createNotice({
+    const id = await repo.createNotice({
       title,
       body,
       publishedBy: req.principal!.userId,
@@ -1567,14 +1563,14 @@ app.post(
 app.post(
   '/api/notices/:id/urgent',
   requireRole('HR_ADMIN'),
-  handler((req, res) => {
+  handler(async (req, res) => {
     const { isUrgent } = z.object({ isUrgent: z.boolean() }).parse(req.body);
     const repo = repoOf(req);
-    if (isUrgent && repo.urgentNoticeCount() >= MAX_URGENT_NOTICES) {
+    if (isUrgent && (await repo.urgentNoticeCount()) >= MAX_URGENT_NOTICES) {
       res.status(400).json({ error: `At most ${MAX_URGENT_NOTICES} notices can be pinned urgent at once` });
       return;
     }
-    const ok = repo.setNoticeUrgent(req.params.id!, isUrgent);
+    const ok = await repo.setNoticeUrgent(req.params.id!, isUrgent);
     if (!ok) {
       res.status(404).json({ error: 'Not found' });
       return;
@@ -1586,13 +1582,13 @@ app.post(
 // F8.3 / US-41 — "Opening a notice records the employee and the time, once only."
 app.post(
   '/api/notices/:id/read',
-  handler((req, res) => {
+  handler(async (req, res) => {
     const employeeId = req.principal!.employeeId;
     if (!employeeId) {
       res.status(400).json({ error: 'No employee profile on this account' });
       return;
     }
-    repoOf(req).markNoticeRead(req.params.id!, employeeId);
+    await repoOf(req).markNoticeRead(req.params.id!, employeeId);
     res.json({ ok: true });
   }),
 );
@@ -1601,8 +1597,8 @@ app.post(
 app.get(
   '/api/notices/:id/report',
   requireRole('HR_ADMIN'),
-  handler((req, res) => {
-    const report = repoOf(req).noticeReadReport(req.params.id!);
+  handler(async (req, res) => {
+    const report = await repoOf(req).noticeReadReport(req.params.id!);
     if (!report) {
       res.status(404).json({ error: 'Not found' });
       return;
@@ -1626,5 +1622,3 @@ const PORT = Number(process.env.PORT ?? 4000);
 app.listen(PORT, () => {
   console.log(`PulseHR API listening on http://localhost:${PORT}`);
 });
-
-export { app };

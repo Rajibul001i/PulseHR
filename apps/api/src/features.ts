@@ -15,11 +15,11 @@ function monthsBetween(from: DhakaDate, to: DhakaDate): number {
   return (ty - fy) * 12 + (tm - fm) - (td < fd ? 1 : 0);
 }
 
-export function buildFeatures(
+export async function buildFeatures(
   orgId: string,
   employee: Row,
   asOf: DhakaDate,
-): AttritionFeatureInput {
+): Promise<AttritionFeatureInput> {
   const employeeId = String(employee.id);
   const win90 = addDays(asOf, -90);
   const win60 = addDays(asOf, -60);
@@ -30,7 +30,7 @@ export function buildFeatures(
 
   // F2 — single-day unplanned absences adjacent to a weekend.
   // Deliberately NOT total sick days: that would penalise illness and caregiving (P1-16).
-  const absenceRow = one(
+  const absenceRow = await one(
     `SELECT COUNT(*) AS n FROM attendance
       WHERE organisation_id = ? AND employee_id = ? AND work_date BETWEEN ? AND ?
         AND status = 'ABSENT' AND is_unplanned = 1`,
@@ -42,14 +42,14 @@ export function buildFeatures(
   const unplannedWeekendAdjacentAbsences90d = Number(absenceRow?.n ?? 0);
 
   // F3 — lateness trend, z-scored within department
-  const lateRecent = one(
+  const lateRecent = await one(
     `SELECT AVG(late_minutes) AS avg FROM attendance
       WHERE employee_id = ? AND work_date BETWEEN ? AND ? AND status = 'PRESENT'`,
     employeeId,
     win60,
     asOf,
   );
-  const latePrior = one(
+  const latePrior = await one(
     `SELECT AVG(late_minutes) AS avg FROM attendance
       WHERE employee_id = ? AND work_date BETWEEN ? AND ? AND status = 'PRESENT'`,
     employeeId,
@@ -57,11 +57,11 @@ export function buildFeatures(
     win60,
   );
 
-  const deptRows = all(
+  const deptRows = await all(
     `SELECT AVG(a.late_minutes) AS avg
        FROM attendance a
        JOIN employee e ON e.id = a.employee_id
-      WHERE e.organisation_id = ? AND e.department_id IS ?
+      WHERE e.organisation_id = ? AND e.department_id IS NOT DISTINCT FROM ?
         AND a.work_date BETWEEN ? AND ? AND a.status = 'PRESENT'
       GROUP BY a.employee_id`,
     orgId,
@@ -73,12 +73,13 @@ export function buildFeatures(
   const departmentLatenessStdDev = stdDev(deptAvgs);
 
   // F4 — leave drawdown over the window
-  const ledger = all(
+  const ledgerRows = await all(
     `SELECT leave_type, delta, effective_date FROM leave_ledger
       WHERE organisation_id = ? AND employee_id = ?`,
     orgId,
     employeeId,
-  ).map((r) => ({
+  );
+  const ledger = ledgerRows.map((r) => ({
     leaveType: r.leave_type as never,
     delta: Number(r.delta),
     effectiveDate: String(r.effective_date),
@@ -90,7 +91,7 @@ export function buildFeatures(
     createdAt: '',
   }));
   const leaveBalanceAtWindowStart = balanceOf(ledger, 'EARNED', win90);
-  const consumedRow = one(
+  const consumedRow = await one(
     `SELECT COALESCE(SUM(-delta), 0) AS n FROM leave_ledger
       WHERE employee_id = ? AND delta < 0 AND effective_date BETWEEN ? AND ?`,
     employeeId,
@@ -100,13 +101,13 @@ export function buildFeatures(
   const leaveDaysConsumed90d = Number(consumedRow?.n ?? 0);
 
   // F5 — compensation stagnation, from the salary-structure history
-  const lastRaise = one(
+  const lastRaise = await one(
     `SELECT MAX(effective_from) AS d FROM salary_structure
       WHERE employee_id = ? AND effective_from <= ?`,
     employeeId,
     asOf,
   );
-  const firstStructure = one(
+  const firstStructure = await one(
     `SELECT MIN(effective_from) AS d FROM salary_structure WHERE employee_id = ?`,
     employeeId,
   );
@@ -121,7 +122,7 @@ export function buildFeatures(
     : null;
 
   // F7 — sustained overtime
-  const otRow = one(
+  const otRow = await one(
     `SELECT COALESCE(SUM(ot_hours), 0) AS total FROM attendance
       WHERE employee_id = ? AND work_date BETWEEN ? AND ?`,
     employeeId,

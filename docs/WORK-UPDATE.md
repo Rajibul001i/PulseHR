@@ -87,6 +87,56 @@ by a *previous* run of the same scripts in this pass, not from anything shipped 
 re-running each in isolation against a clean reseed, both fully green. Full writeup, including
 that verification trail, in `docs/13-sqa-defect-report.md` §16.
 
+### 3. PostgreSQL support — ADR-009's production database target, now real
+
+"The proper database, as suggested in the proposal." ADR-009 already specified SQLite for the
+prototype and PostgreSQL for production; this builds the half that didn't exist yet, rather
+than replacing what's there — SQLite stays the zero-install default for anyone who wants to
+clone and `npm install && npm run dev` without standing up a database first.
+
+- **A real, tested PostgreSQL backend**, selected automatically by whether `DATABASE_URL` is
+  set. `db.ts` now dispatches between two backends (SQLite, unchanged in behavior; PostgreSQL,
+  new) behind one async interface, which meant converting the entire backend from synchronous
+  to `async`/`await` — every `Repo` method (~69 of them), every one of the 61 API routes, the
+  seed script, both job scripts, and the auth/entitlement/feature-scoring modules. PostgreSQL
+  has no synchronous driver, so this touched nearly every file in `apps/api/src`.
+- **A production PostgreSQL schema** (`apps/api/migrations-postgres/`) mirroring every SQLite
+  migration column-for-column. Two design decisions from the original data-model doc were
+  deliberately built differently once they became concrete: money stays integer paisa (not
+  `NUMERIC`, which the PostgreSQL driver returns as a string and would have silently broken
+  arithmetic across the whole codebase) and timestamps stay text (not `TIMESTAMPTZ`, which
+  the driver returns as a JS `Date`, not the string every call site already expects) — both
+  reasoned through and documented in `docs/03-data-model.md` §3 rather than followed blindly.
+- **One real defect found by the migration itself**: a query ordered results by SQLite's
+  implicit `rowid`, which has no PostgreSQL equivalent — would have silently returned a
+  quarter's key results in arbitrary order under Postgres. Fixed with an explicit
+  `sort_order` column (migration 012, both dialects).
+- **Verified without a real local PostgreSQL** — none was available without violating the
+  standing "everything stays on E: drive" constraint (attempting a system-wide install ran C:
+  down to critical, which is what surfaced that constraint explicitly this session; cleaned up
+  and switched to an in-memory PostgreSQL-compatible test engine instead, `pg-mem`, run in
+  place of the real driver via Node's built-in module mocking). Confirmed money round-trips as
+  a real number, transactions share one connection across nested calls (the property the
+  leave-approval race guard depends on), and two SQLite-only queries rewritten to portable SQL
+  both behave correctly. Three things the test tool itself couldn't verify (a trigger, one SQL
+  operator, and rollback actually reverting a write) were each confirmed to be gaps in the
+  *test tool*, not the migration, via isolated repros — flagged for a one-time real-Postgres
+  spot-check once the live database exists, not silently assumed correct.
+- **`render.yaml`** now provisions a managed PostgreSQL instance and wires it to the API via
+  `DATABASE_URL`. The seed script gained a guard so a service restart no longer wipes real
+  Postgres data — the old unconditional reseed-on-every-boot was correct only because SQLite's
+  disk on Render's free tier is ephemeral anyway.
+
+**Deliberately not done this pass:** Row-Level Security and a database-level leave-overlap
+constraint (both specified as defense-in-depth in the original data-model doc) — the primary
+application-level controls for both are unchanged and confirmed still working against
+Postgres; the database-level backstops remain a real, tracked improvement, not a silent gap.
+
+**Verified:** full regression on the SQLite path after every conversion (0 typecheck errors
+workspace-wide, 107 unit, 20 smoke including P0-7, 57 bughunt with 0 defects, both job scripts
+run for real) confirming nothing observable changed, plus the pg-mem PostgreSQL verification
+above. Full writeup in `docs/13-sqa-defect-report.md` §17.
+
 ---
 
 ## Session 4 — 13 August 2026

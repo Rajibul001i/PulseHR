@@ -28,17 +28,17 @@ export interface PayrollRunSummary {
   totalNetPaisa: number;
 }
 
-export function runPayroll(
+export async function runPayroll(
   organisationId: string,
   userId: string,
   year: number,
   month: number,
-): PayrollRunSummary {
+): Promise<PayrollRunSummary> {
   const repo = new Repo(organisationId, userId);
   const periodStart = firstOfMonth(year, month);
   const periodEnd = lastOfMonth(year, month);
 
-  const employees = all(
+  const employees = await all(
     `SELECT * FROM employee WHERE organisation_id = ? AND employment_status = 'ACTIVE'`,
     organisationId,
   );
@@ -50,7 +50,7 @@ export function runPayroll(
     const name = String(employee.full_name);
 
     // Idempotent: a re-run does not double-issue. Payslips are immutable (P0-8).
-    const existing = all(
+    const existing = await all(
       `SELECT id FROM payslip WHERE employee_id = ? AND period_year = ? AND period_month = ?
          AND adjusts_payslip_id IS NULL`,
       employeeId,
@@ -62,7 +62,7 @@ export function runPayroll(
       continue;
     }
 
-    const structures = repo.salaryStructures(employeeId);
+    const structures = await repo.salaryStructures(employeeId);
     if (structures.length === 0) {
       summary.skipped.push({ employeeId, name, reason: 'No salary structure' });
       continue;
@@ -77,7 +77,7 @@ export function runPayroll(
     }
 
     // LWP days and overtime come from attendance for the period.
-    const attendance = repo.attendanceBetween(employeeId, periodStart, periodEnd);
+    const attendance = await repo.attendanceBetween(employeeId, periodStart, periodEnd);
     const lwpDays = attendance.filter((a) => a.status === 'ABSENT').length;
     const otHours = attendance.reduce((sum, a) => sum + Number(a.ot_hours ?? 0), 0);
 
@@ -99,9 +99,9 @@ export function runPayroll(
       continue;
     }
 
-    transaction(() => {
-      const id = repo.insertPayslip(payslip, userId);
-      repo.audit('PAYSLIP_ISSUED', 'payslip', id, {
+    await transaction(async () => {
+      const id = await repo.insertPayslip(payslip, userId);
+      await repo.audit('PAYSLIP_ISSUED', 'payslip', id, {
         period: `${year}-${month}`,
         netPay: payslip.netPay,
       });
@@ -111,7 +111,7 @@ export function runPayroll(
     summary.totalNetPaisa += payslip.netPay;
   }
 
-  repo.audit('PAYROLL_RUN', 'payslip', null, summary);
+  await repo.audit('PAYROLL_RUN', 'payslip', null, summary);
   return summary;
 }
 
@@ -125,12 +125,12 @@ registerHandler('PAYROLL_RUN', (payload) =>
 );
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  openDb();
+  await openDb();
   const year = Number(process.argv[2] ?? new Date().getFullYear());
   const month = Number(process.argv[3] ?? new Date().getMonth() + 1);
-  const orgs = all('SELECT id, name FROM organisation');
+  const orgs = await all('SELECT id, name FROM organisation');
   for (const org of orgs) {
-    const summary = runPayroll(String(org.id), 'system', year, month);
+    const summary = await runPayroll(String(org.id), 'system', year, month);
     console.log(`[payroll] ${org.name} ${year}-${month}:`, {
       issued: summary.issued,
       skipped: summary.skipped.length,

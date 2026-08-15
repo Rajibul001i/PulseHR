@@ -87,10 +87,10 @@ function hashRefreshToken(token: string): string {
   return createHash('sha256').update(token).digest('hex');
 }
 
-export function issueRefreshToken(userId: string, organisationId: string): string {
+export async function issueRefreshToken(userId: string, organisationId: string): Promise<string> {
   const token = randomBytes(32).toString('hex');
   const expires = new Date(Date.now() + REFRESH_TTL_DAYS * 86_400_000).toISOString();
-  run(
+  await run(
     `INSERT INTO session (id, organisation_id, user_id, refresh_token_hash, expires_at, created_at)
      VALUES (?, ?, ?, ?, ?, ?)`,
     uuid(),
@@ -103,8 +103,8 @@ export function issueRefreshToken(userId: string, organisationId: string): strin
   return token;
 }
 
-export function consumeRefreshToken(token: string): Principal | null {
-  const row = one(
+export async function consumeRefreshToken(token: string): Promise<Principal | null> {
+  const row = await one(
     `SELECT s.id, s.user_id, s.organisation_id, s.expires_at, s.revoked_at,
             u.role, u.is_active, e.id AS employee_id
        FROM session s
@@ -119,7 +119,7 @@ export function consumeRefreshToken(token: string): Principal | null {
   if (!row.is_active) return null;
 
   // Rotate: a refresh token is single-use.
-  run('UPDATE session SET revoked_at = ? WHERE id = ?', nowIso(), row.id);
+  await run('UPDATE session SET revoked_at = ? WHERE id = ?', nowIso(), row.id);
 
   return {
     userId: String(row.user_id),
@@ -130,9 +130,9 @@ export function consumeRefreshToken(token: string): Principal | null {
 }
 
 /** The kill switch. Called on logout, password change, role change, and termination. */
-export function revokeAllSessions(userId: string): number {
-  const open = all('SELECT id FROM session WHERE user_id = ? AND revoked_at IS NULL', userId);
-  run('UPDATE session SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL', nowIso(), userId);
+export async function revokeAllSessions(userId: string): Promise<number> {
+  const open = await all('SELECT id FROM session WHERE user_id = ? AND revoked_at IS NULL', userId);
+  await run('UPDATE session SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL', nowIso(), userId);
   return open.length;
 }
 
@@ -147,10 +147,10 @@ function hashResetToken(token: string): string {
   return createHash('sha256').update(token).digest('hex');
 }
 
-export function issuePasswordResetToken(userId: string): string {
+export async function issuePasswordResetToken(userId: string): Promise<string> {
   const token = randomBytes(32).toString('hex');
   const expires = new Date(Date.now() + RESET_TTL_MINUTES * 60_000).toISOString();
-  run(
+  await run(
     `INSERT INTO password_reset_token (id, user_id, token_hash, expires_at, created_at)
      VALUES (?, ?, ?, ?, ?)`,
     uuid(),
@@ -163,8 +163,8 @@ export function issuePasswordResetToken(userId: string): string {
 }
 
 /** Returns the user id the token belongs to, or null if invalid, expired, or already used. */
-export function consumePasswordResetToken(token: string): string | null {
-  const row = one(
+export async function consumePasswordResetToken(token: string): Promise<string | null> {
+  const row = await one(
     'SELECT id, user_id, expires_at, used_at FROM password_reset_token WHERE token_hash = ?',
     hashResetToken(token),
   );
@@ -172,7 +172,7 @@ export function consumePasswordResetToken(token: string): string | null {
   if (row.used_at) return null; // single-use
   if (String(row.expires_at) < nowIso()) return null; // 30-minute expiry
 
-  run('UPDATE password_reset_token SET used_at = ? WHERE id = ?', nowIso(), row.id);
+  await run('UPDATE password_reset_token SET used_at = ? WHERE id = ?', nowIso(), row.id);
   return String(row.user_id);
 }
 

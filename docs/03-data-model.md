@@ -2,6 +2,10 @@
 
 **Resolves:** P0-5, P0-7, P0-8, P1-18
 **Prototype schema:** `apps/api/migrations/001_init.sql` (SQLite dialect, ADR-009)
+**Production schema:** `apps/api/migrations-postgres/*.sql` (PostgreSQL dialect, implemented
+15 August 2026 — see `docs/13-sqa-defect-report.md` §17 for the migration writeup and what
+deliberately differs from §3 below). `db.ts` picks the backend automatically based on whether
+`DATABASE_URL` is set; both share the same `Repo` class and SQL text.
 
 ---
 
@@ -42,6 +46,15 @@ Deferred to Increment 3 and specified but not built in the prototype:
 The prototype uses SQLite. These are the PostgreSQL-only constructs that must be added on
 migration, and the reason each exists.
 
+> **Implementation note (15 August 2026):** this section was written before the PostgreSQL
+> migration existed, as a forward-looking design note. Now that `migrations-postgres/` is
+> real, three of the four items below were deliberately built *differently* than written
+> here, for reasons that only became concrete during implementation — each is annotated
+> where it applies. Payslip immutability (the trigger) was built exactly as designed.
+> Row-Level Security and the leave-overlap exclusion constraint are both still open — see
+> `docs/13-sqa-defect-report.md` §17 for the full reasoning and status of everything in this
+> section, not just the money/timestamp deviations.
+
 ### Tenant isolation (ADR-003)
 
 ```sql
@@ -54,6 +67,12 @@ CREATE POLICY tenant_isolation ON employee
 Repeat for every business table. The repository layer sets `pulsehr.current_org` from the
 authenticated principal at the start of each transaction. RLS is the **backstop**, not the
 primary control — two independent controls, because a cross-tenant leak ends a B2B product.
+
+**Status: not yet built.** The primary control (every `Repo` query scoped by `organisation_id`,
+ADR-003) is unchanged and still the enforced boundary — confirmed still holding by NFR-14's
+tenant-isolation checks in `smoke.mjs`/`bughunt.mjs` against the Postgres-backed `Repo` class
+via the same code path as SQLite. RLS as the second, defense-in-depth control is genuinely
+deferred, not silently dropped — tracked here rather than closed out.
 
 ### Overlapping leave (P0-7)
 
@@ -71,6 +90,13 @@ SQLite has no exclusion constraints, so the prototype enforces this inside the a
 transaction. In production, both apply — the constraint catches anything that bypasses the
 application.
 
+**Status: not yet built**, same reasoning as Row-Level Security above — the application-level
+guard (checked inside the approval transaction, `server.ts`'s leave-decision route) is the
+primary control and is proven working against Postgres by `smoke.mjs`'s P0-7 check
+(concurrent-approval race). The `EXCLUDE USING gist` constraint remains a real improvement to
+make, as a second independent control, not a requirement for the application guard to be
+correct.
+
 ### Payslip immutability (P0-8, NFR-9)
 
 ```sql
@@ -86,6 +112,10 @@ CREATE TRIGGER payslip_immutable BEFORE UPDATE ON payslip
 
 The prototype implements the equivalent SQLite trigger, and it is verified to fire.
 
+**Status: built as designed.** `migrations-postgres/001_init.sql` creates
+`reject_payslip_update()`/`reject_payslip_line_update()` plus their `BEFORE UPDATE` triggers,
+in PL/pgSQL, exactly this pattern.
+
 ### Money
 
 ```sql
@@ -95,6 +125,20 @@ The prototype implements the equivalent SQLite trigger, and it is verified to fi
 ALTER TABLE payslip ALTER COLUMN net_pay TYPE NUMERIC(14,2);
 ```
 
+**Status: built differently, deliberately.** Money stays **INTEGER paisa** in
+`migrations-postgres/`, the same representation SQLite already uses — not `NUMERIC(14,2)`.
+The FLOAT/REAL warning above is correct and the reason still holds; the fix doesn't have to be
+NUMERIC, and NUMERIC introduces a real problem of its own: `pg` (node-postgres) returns
+NUMERIC columns as **strings**, not JS numbers, specifically to avoid silently losing
+precision on values a JS `number` can't represent exactly. Every money value in this codebase
+(`@pulsehr/core`, every `Repo` method, every route) is already written assuming a JS number
+straight off the row — switching to NUMERIC would silently turn every one of those into a
+string and break arithmetic throughout, unless every call site were also rewritten to parse
+it back. INTEGER paisa avoids the float-precision problem the original note was correctly
+worried about (it's still exact integer arithmetic, just in the smaller unit) without
+introducing a second, larger problem. Confirmed round-tripping as a real JS number against
+Postgres in `apps/api/src/verify-postgres-adapter.mjs`.
+
 ### Timestamps
 
 ```sql
@@ -102,6 +146,16 @@ ALTER TABLE payslip ALTER COLUMN net_pay TYPE NUMERIC(14,2);
 -- Asia/Dhaka by the application, never by the database's session timezone.
 ALTER TABLE attendance ALTER COLUMN check_in TYPE TIMESTAMPTZ;
 ```
+
+**Status: built differently, deliberately**, for the same class of reason as money above.
+Timestamps stay **TEXT** (ISO-8601 strings, exactly what `nowIso()` already produces and what
+SQLite already stores) rather than `TIMESTAMPTZ` — `pg` returns `TIMESTAMPTZ` as a JS `Date`
+object, not the string every call site compares, slices, and serialises today. All business-
+date logic already lives in the application layer (`@pulsehr/core`'s `businessDate()` derives
+Asia/Dhaka dates from JS, per ADR-005) — the database was never doing timezone-aware date
+arithmetic in SQL to begin with, so `TIMESTAMPTZ`'s actual benefit (correct timezone-aware
+comparisons *in SQL*) isn't something this schema currently uses. Confirmed no SQL-level date
+function (`strftime`, `julianday`, `date()`) exists anywhere in `repo.ts` before choosing this.
 
 ## 4. Indexing
 

@@ -16,11 +16,11 @@ import { buildFeatures } from '../features.js';
 import { Repo } from '../repo.js';
 import { registerHandler } from './queue.js';
 
-export function scoreOrganisation(organisationId: string, userId: string, asOf?: string) {
+export async function scoreOrganisation(organisationId: string, userId: string, asOf?: string) {
   const scoringDate = asOf ?? businessDate(new Date());
   const repo = new Repo(organisationId, userId);
 
-  const employees = all(
+  const employees = await all(
     `SELECT * FROM employee WHERE organisation_id = ? AND employment_status = 'ACTIVE'`,
     organisationId,
   );
@@ -29,14 +29,14 @@ export function scoreOrganisation(organisationId: string, userId: string, asOf?:
   const bands = { LOW: 0, MODERATE: 0, ELEVATED: 0, HIGH: 0 };
 
   for (const employee of employees) {
-    const features = buildFeatures(organisationId, employee, scoringDate);
+    const features = await buildFeatures(organisationId, employee, scoringDate);
     const result = scoreEmployee(features);
-    repo.saveScore(result);
+    await repo.saveScore(result);
     bands[result.band] += 1;
     scored += 1;
   }
 
-  repo.audit('ATTRITION_BATCH', 'attrition_score', null, { scoringDate, scored, bands });
+  await repo.audit('ATTRITION_BATCH', 'attrition_score', null, { scoringDate, scored, bands });
   return { scoringDate, scored, bands };
 }
 
@@ -48,10 +48,10 @@ registerHandler('ATTRITION_SCORING', (payload) =>
 // pathToFileURL, not string concatenation: on Windows a path is `D:\...` and the URL form
 // is `file:///D:/...` with three slashes, so naive interpolation never matches.
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  openDb();
-  const orgs = all('SELECT id, name FROM organisation');
+  await openDb();
+  const orgs = await all('SELECT id, name FROM organisation');
   for (const org of orgs) {
-    const summary = scoreOrganisation(String(org.id), 'system');
+    const summary = await scoreOrganisation(String(org.id), 'system');
     console.log(`[attrition] ${org.name}:`, summary);
   }
 }
