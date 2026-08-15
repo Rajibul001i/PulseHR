@@ -168,8 +168,13 @@ export function Plan() {
       <div className="grid grid-3">
         {TIER_ORDER.map((tier, i) => {
           const current = tier === sub.tier;
-          const cumulative = TIER_ORDER.slice(0, TIER_ORDER.indexOf(tier) + 1).flatMap(byTier);
-          const isUpgrade = TIER_ORDER.indexOf(tier) > TIER_ORDER.indexOf(sub.tier);
+          const tierIndex = TIER_ORDER.indexOf(tier);
+          const cumulative = TIER_ORDER.slice(0, tierIndex + 1).flatMap(byTier);
+          // Shown dimmed below the included list, rather than leaving the shorter cards with
+          // dead space under a bottom-pinned button -- also doubles as the upsell pitch: a
+          // Starter admin can see exactly what Growth/Enterprise would unlock.
+          const locked = TIER_ORDER.slice(tierIndex + 1).flatMap(byTier);
+          const isUpgrade = tierIndex > TIER_ORDER.indexOf(sub.tier);
           return (
             <div
               className={`card plan-card content-in ${current ? 'current' : ''}`}
@@ -187,6 +192,11 @@ export function Plan() {
                 {cumulative.map((f) => (
                   <li key={f.key} title={f.pitch}>
                     <span aria-hidden="true">✓</span> {f.label}
+                  </li>
+                ))}
+                {locked.map((f) => (
+                  <li key={f.key} className="plan-feature-locked" title={`${f.label} — included from ${TIER_LABEL[f.minimumTier]}`}>
+                    <span aria-hidden="true">🔒</span> {f.label}
                   </li>
                 ))}
               </ul>

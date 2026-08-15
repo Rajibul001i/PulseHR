@@ -11,6 +11,10 @@
  * ≠ correct), plus theme toggle and sign out. "Run payroll" / "Run scoring batch" navigate
  * to the page that runs them rather than duplicating that polling logic here.
  *
+ * Plan & billing isn't in the `nav` prop (App.tsx's NAV array deliberately excludes it — see
+ * the comment there), but it's still added into "Go to" below for HR_ADMIN so ⌘K search
+ * still finds it. Its visual home in the sidebar is the plan-chip, not a nav row.
+ *
  * Opens/closes instantly, no exit/entrance animation — this is used dozens of times a day
  * by design, and the frequency rule (used throughout this session's motion work) is
  * unambiguous: keyboard-initiated, high-frequency UI gets no animation, ever.
@@ -65,16 +69,18 @@ export function CommandPalette({
     return () => document.removeEventListener('keydown', onKeyDown);
   }, [open, onOpenChange]);
 
-  const items = useMemo(
-    () =>
-      nav
-        .filter((i) => !i.roles || i.roles.includes(role))
-        .map((i) => ({
-          ...i,
-          locked: Boolean(i.feature && subscription && !subscription.entitlements.includes(i.feature)),
-        })),
-    [nav, role, subscription],
-  );
+  const items = useMemo(() => {
+    const fromNav = nav
+      .filter((i) => !i.roles || i.roles.includes(role))
+      .map((i) => ({
+        ...i,
+        locked: Boolean(i.feature && subscription && !subscription.entitlements.includes(i.feature)),
+      }));
+    if (role === 'HR_ADMIN') {
+      fromNav.push({ to: '/plan', label: 'Plan & billing', locked: false });
+    }
+    return fromNav;
+  }, [nav, role, subscription]);
 
   function go(to: string) {
     navigate(to);

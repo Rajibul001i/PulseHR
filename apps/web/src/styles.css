@@ -221,6 +221,7 @@ a { color: var(--accent); text-decoration: none; }
 /* ------------------------------ plan chip ------------------------------- */
 
 .plan-chip {
+  display: block;
   background: var(--surface-2);
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -230,6 +231,35 @@ a { color: var(--accent); text-decoration: none; }
 .plan-chip-tier { font-size: 13px; font-weight: 650; }
 .plan-chip-seats { font-size: 11px; color: var(--muted); margin: 3px 0 6px; }
 .plan-chip-trial { font-size: 11px; color: var(--elevated); margin-top: 6px; }
+
+/* Only rendered for HR_ADMIN (App.tsx PlanChip) -- everyone else gets the plain read-only
+ * div above. This is the sidebar's sole entry point to Plan & billing now that it's out of
+ * the main nav list, so it needs to visibly read as a link, not just be clickable. */
+.plan-chip-link {
+  text-decoration: none;
+  color: inherit;
+  cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+.plan-chip-link:hover,
+.plan-chip-link:focus-visible {
+  border-color: var(--accent);
+  background: var(--surface-3, var(--surface-2));
+}
+.plan-chip-link:active { transform: scale(0.99); }
+.plan-chip-manage {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.plan-chip-link:hover .plan-chip-manage span { transform: translateX(2px); }
+.plan-chip-manage span { display: inline-block; transition: transform 120ms ease; }
 
 /* ------------------------------ typography ------------------------------ */
 
@@ -322,6 +352,19 @@ input:focus, select:focus {
   box-shadow: 0 0 0 3px var(--accent-soft);
   outline: none;
 }
+
+/* Without this, the browser renders its own unstyled OS-chrome button inside the input --
+ * a bright white pill sitting in an otherwise all-dark form (Profile.tsx's document upload).
+ * ::file-selector-button is the standard hook (Chrome/Edge/Firefox/Safari all support it) for
+ * restyling just that inner button to match the rest of the button system. */
+input[type='file'] { padding: 6px 8px; color: var(--muted); font-size: 13px; }
+input[type='file']::file-selector-button {
+  font: inherit; font-size: 13px; font-weight: 550; padding: 6px 12px; margin-right: 10px;
+  border: 1px solid var(--border); border-radius: 7px;
+  background: var(--surface-2); color: var(--text); cursor: pointer;
+  transition: border-color .12s ease;
+}
+input[type='file']::file-selector-button:hover { border-color: var(--accent); }
 label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 5px; }
 .field { margin-bottom: 13px; }
 .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; }
@@ -447,6 +490,11 @@ label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 5px
 .plan-features { list-style: none; padding: 0; margin: 14px 0 16px; flex: 1; }
 .plan-features li { font-size: 13px; padding: 4px 0; color: var(--muted); }
 .plan-features li span { color: var(--low); margin-right: 6px; }
+/* Not-yet-included features for this tier, shown dimmed rather than leaving blank space
+ * under the button (docs/13-sqa-defect-report.md -- shorter tiers used to trail off into an
+ * empty gap). Also doubles as the upsell: exactly what upgrading would unlock. */
+.plan-features li.plan-feature-locked { opacity: 0.45; }
+.plan-features li.plan-feature-locked span { color: var(--muted); font-size: 11px; }
 
 /* -------------------------------- toasts -------------------------------- */
 
@@ -528,6 +576,22 @@ label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 5px
   .main { padding: 64px 18px 60px; max-width: none; }
   .toast-stack { left: 14px; right: 14px; max-width: none; }
   .grid-2, .grid-3 { grid-template-columns: 1fr; }
+
+  /* Wide data tables (Leave's request history, Payslips' list) scroll horizontally inside
+   * .table-card on a phone rather than blowing out the page. A self-masking scroll shadow
+   * -- two gradients that scroll with the content and cancel each other out once there's
+   * nothing left to reveal -- signals "more columns this way" without showing a false hint
+   * on any table that happens to already fit. Right edge only: these tables read left-to-
+   * right and the first column (what/when) is what a phone user sees without scrolling. */
+  .table-card {
+    background-image:
+      linear-gradient(to left, var(--surface), transparent 24px),
+      linear-gradient(to left, rgba(0,0,0,.35), transparent 24px);
+    background-repeat: no-repeat;
+    background-size: 24px 100%, 10px 100%;
+    background-position: right, right;
+    background-attachment: local, scroll;
+  }
 }
 
 @media print {
@@ -709,6 +773,15 @@ label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 5px
 .careers-page input:focus {
   border-color: var(--cx-coral); background: #fff; outline: none;
 }
+/* Overrides the app-wide dark ::file-selector-button (styles.css above) so the CV upload
+ * button matches this page's own fixed light teal-ink palette instead of the dashboard's. */
+.careers-page input[type='file']::file-selector-button {
+  font: 600 12.5px var(--cx-body); padding: 7px 13px; margin-right: 10px;
+  border: 1px solid var(--cx-line); border-radius: 6px;
+  background: var(--cx-paper-2); color: var(--cx-text); cursor: pointer;
+  transition: border-color 140ms var(--ease-out);
+}
+.careers-page input[type='file']::file-selector-button:hover { border-color: var(--cx-coral); }
 
 .careers-submit {
   width: 100%; margin-top: 6px;

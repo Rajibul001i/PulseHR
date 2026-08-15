@@ -126,6 +126,16 @@ interface NavItem {
   roles?: Role[];
 }
 
+/*
+ * Plan & billing deliberately isn't in this list. It's an account-level concern (checked
+ * rarely, by HR_ADMIN only) rather than a daily-use workspace tool like Attendance or Leave
+ * -- mixing it into the same list as the things people click every day is exactly the kind
+ * of "everything is a peer of everything else" flattening that makes a sidebar feel messy.
+ * It gets its own entry point instead: the plan-chip already shown to every role becomes a
+ * link to it for HR_ADMIN (see Shell below), the same pattern a settings/account menu would
+ * use in a product that has one. The route itself is unchanged and still reachable -- every
+ * "locked feature" link elsewhere still points at /plan.
+ */
 const NAV: NavItem[] = [
   { to: '/', label: 'Dashboard' },
   { to: '/profile', label: 'My profile' },
@@ -135,8 +145,42 @@ const NAV: NavItem[] = [
   { to: '/notices', label: 'Noticeboard', feature: 'noticeboard' },
   { to: '/okr', label: 'Performance', feature: 'okr' },
   { to: '/ats', label: 'Recruitment', feature: 'ats' },
-  { to: '/plan', label: 'Plan & billing', roles: ['HR_ADMIN'] },
 ];
+
+/** The account-level summary shown in the sidebar. For HR_ADMIN it's the entry point into
+ *  Plan & billing (see the comment on NAV above) -- for every other role it's read-only,
+ *  since only HR_ADMIN can act on billing. */
+function PlanChip({ sub, days, linked }: { sub: SubscriptionDto; days: number | null; linked: boolean }) {
+  const body = (
+    <>
+      <div className="plan-chip-tier">{TIER_LABEL[sub.tier]}</div>
+      <div className="plan-chip-seats">
+        {sub.seats.seatsUsed}/{sub.seats.seatLimit} seats
+      </div>
+      <div className="bar sm">
+        <i
+          style={{
+            transform: `scaleX(${Math.min(1, sub.seats.seatsUsed / Math.max(1, sub.seats.seatLimit))})`,
+            background: sub.seats.approachingLimit ? 'var(--elevated)' : 'var(--accent)',
+          }}
+        />
+      </div>
+      {days !== null && <div className="plan-chip-trial">Trial · {days}d left</div>}
+      {linked && (
+        <div className="plan-chip-manage">
+          Manage plan <span aria-hidden="true">&rarr;</span>
+        </div>
+      )}
+    </>
+  );
+
+  if (!linked) return <div className="plan-chip">{body}</div>;
+  return (
+    <NavLink to="/plan" className="plan-chip plan-chip-link">
+      {body}
+    </NavLink>
+  );
+}
 
 function Shell() {
   const auth = useSelector((s: RootState) => s.auth);
@@ -201,21 +245,7 @@ function Shell() {
         </div>
 
         {sub && (
-          <div className="plan-chip">
-            <div className="plan-chip-tier">{TIER_LABEL[sub.tier]}</div>
-            <div className="plan-chip-seats">
-              {sub.seats.seatsUsed}/{sub.seats.seatLimit} seats
-            </div>
-            <div className="bar sm">
-              <i
-                style={{
-                  transform: `scaleX(${Math.min(1, sub.seats.seatsUsed / Math.max(1, sub.seats.seatLimit))})`,
-                  background: sub.seats.approachingLimit ? 'var(--elevated)' : 'var(--accent)',
-                }}
-              />
-            </div>
-            {days !== null && <div className="plan-chip-trial">Trial · {days}d left</div>}
-          </div>
+          <PlanChip sub={sub} days={days} linked={role === 'HR_ADMIN'} />
         )}
 
         <nav className="nav">

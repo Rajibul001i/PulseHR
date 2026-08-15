@@ -744,3 +744,114 @@ specific symptom is gone (Documents/Objectives/Review-scores sections load inste
 on their skeleton; Payslips shows a real picker and real data instead of a raw error; every
 previously 1084px/963px/569px mobile screenshot now measures exactly 390px) and that nothing
 else regressed.
+
+## 16. Addendum — 15 August 2026 — navigation restructure and a second visual pass
+
+Follow-up to §15, prompted by a team member flagging the **Plan & billing** page specifically
+as "messy" (screenshot attached) and asking for it out of the main sidebar list. Same method
+as §15 — real seeded data, Playwright screenshots, desktop (1360px) and mobile (390px) — but
+narrower scope: the pages a first screenshot pointed at, plus a follow-up sweep of the rest of
+the app for the same class of issue. Four more real defects found; all four fixed.
+
+### Navigation — Plan & billing moved out of the sidebar list (not a defect, a restructure)
+
+`Plan & billing` sat in the same flat `<nav>` list as Attendance, Leave, Payslips and the rest
+— treating an account-level, checked-rarely, HR_ADMIN-only page as a peer of the tools staff
+use every day. Removed from the rendered `NAV` array (`App.tsx`); the sidebar's existing
+`.plan-chip` (tier, seat usage, trial countdown — already shown to every role) is now itself
+the link to `/plan` for HR_ADMIN, with a "Manage plan →" affordance added so it reads as
+clickable. For every other role it stays a plain, non-interactive summary, since only
+HR_ADMIN can act on billing. `CommandPalette.tsx` sourced its "Go to" list from the same `NAV`
+array, so removing the entry would have silently dropped it from ⌘K search too — added it back
+explicitly for HR_ADMIN there, decoupled from the sidebar's visual placement. The route itself,
+and every existing "locked feature → /plan" cross-link, is unchanged.
+
+### BUG-30 — Severity: Medium · Plan & billing's pricing cards had dead space, not a redesign miss
+
+The three pricing cards (`Plan.tsx`) list only the features *included* at that tier, and the
+card's button is pinned to the bottom via `flex: 1` on the feature list. Starter has 4 features,
+Enterprise has 10 — so Starter's card had roughly 200px of empty space between its last
+checkmark and the Downgrade button, with Growth showing a smaller version of the same gap. This
+is what the attached screenshot actually showed as "messy": not a color or spacing problem, a
+content-height mismatch that a fixed-position button turns into visible dead air.
+
+**Fix:** each card now also lists the features it *doesn't* yet include, dimmed with a 🔒 (the
+same locked-feature convention already used in the sidebar and command palette), title-
+tooltipped with which tier unlocks it. This fills the space with genuine information instead of
+blank area, and doubles as the upsell the pricing table exists to make — a Starter admin can
+now see exactly what Growth or Enterprise would add, rather than three checkmarks and a wall of
+nothing.
+
+### BUG-31 — Severity: Medium · three Dashboard cards were permanently blank for every HR admin
+
+`Dashboard.tsx`'s top stat row unconditionally rendered Earned/Casual/Sick leave balance cards
+from `me?.balances`. HR_ADMIN accounts are administrative logins with no matching `employee`
+row (by design, per §15's BUG-26) — so `balances` was always `{}` for that role, and those three
+cards showed a bare `—` on every single HR admin's dashboard, forever. A quarter of the page's
+top row was permanently dead UI for the role that opens this page most.
+
+**Fix:** gated the personal-leave-balance row on `me?.employee` being present (true for
+EMPLOYEE and MANAGER, who are real staff records; false only for HR_ADMIN). HR_ADMIN instead
+sees org-level stats built from data the page already fetches: Pending approvals (unchanged)
+and Needs attention (count of ELEVATED/HIGH-band employees from the same at-risk list rendered
+below), rather than three cards with nothing to show.
+
+### BUG-32 — Severity: Low · a bare native file input broke the dark theme on two pages
+
+`Profile.tsx`'s document upload and the public careers page's CV upload both use a plain
+`<input type="file">`. Every other control in the app is dark-themed via the shared
+`input, select, textarea` rule, but that rule can't reach the browser's own OS-chrome "Choose
+File" button rendered inside a file input — so it showed as an unstyled white pill sitting in
+an otherwise all-dark form, the single most visually "off" element on either page.
+
+**Fix:** styled `::file-selector-button` (supported in all evergreen browsers) to match the
+app's button system on the main app, and separately for the careers page — which deliberately
+runs its own fixed light palette (§9 of `WORK-UPDATE.md`) — so its upload button matches that
+page's teal-ink palette instead of inheriting the dashboard's dark one.
+
+### BUG-33 — Severity: Low · backend implementation detail leaked into Payslips' user-facing copy
+
+`Payslips.tsx` told every HR admin: *"Runs in the worker process, not the API — month-end
+payroll is CPU-bound and would otherwise block every other request."* True, and the reason
+payroll is async (ADR-004) — but it's an explanation of the system's internals, not something
+an HR admin needs or can act on. Same defect class as §15's BUG-29 (leaked citations), different
+mechanism: that was an internal ID bleeding through, this is engineering reasoning bleeding
+through, in a spot where a plain user-facing sentence should be.
+
+**Fix:** replaced with *"Payroll runs in the background, so the rest of PulseHR stays
+responsive while it processes. This can take a moment for a large team."* — same reassurance
+(clicking won't freeze the app), none of the internals. Grepped the rest of `pages/` for the
+same pattern (worker process, event loop, CPU-bound, job queue) — no other instance found.
+
+### Also fixed, not separately numbered (clarity, not correctness)
+
+Dashboard's leave-balance cards cited the Bangladesh Labour Act sections behind each accrual
+rule (`§117`, `§115`, `§116`) — real, deliberate citations (`docs/04-payroll-spec.md`), not a
+BUG-29-style leak, but bare enough to visually read as one out of context. Prefixed each with
+"Labour Act" so the citation is self-explanatory without a reader needing to already know the
+numbering.
+
+### Mobile scope confirmed: EMPLOYEE only, per team direction
+
+Manager and HR_ADMIN screens (attendance grids, the Kanban board, employee pickers, billing)
+are accepted as desktop-oriented — confirmed with the team rather than assumed. Verified the
+EMPLOYEE role specifically at 390px across Dashboard, Profile, Attendance, Leave, Payslips,
+Notices and Performance: no horizontal overflow on any page (confirming §15's BUG-28 fix still
+holds), all empty/read states intact. Added one small affordance while there: `.table-card`
+tables on mobile (Leave's request history, Payslips' list) now show a right-edge scroll shadow
+— two stacked gradients, one scrolling with the content and one fixed to the viewport, that
+self-cancel once there's nothing further to reveal — so a phone user sees a signal that the
+Status/Amount column is a swipe away, rather than a column that just looks chopped off at the
+card edge. Confirmed it does *not* false-positive on tables that already fit (OKR's review-
+score table, 3 narrow columns) by inspecting the same page at the same viewport.
+
+**Re-verified:** full regression on a freshly reseeded database — 107 unit tests, 64 bughunt
+checks (0 defects; the two isolated `bughunt.mjs` re-runs against the same live server that
+briefly showed BUG-03/BUG-13-shaped failures were confirmed as the already-documented rate-
+limiter/OKR-weight test-state contamination pattern from §14, not new regressions — a single
+clean run against a freshly seeded database showed 0 defects), and 20 smoke checks (the one
+transient failure, "org A sees its own employees — got 21," was `bughunt.mjs`'s own BUG-14
+candidate-to-employee conversion test having run first against the same database inside the
+same verification pass, inflating the count by exactly one before `smoke.mjs`'s hardcoded
+`=== 20` ran — confirmed by re-running `smoke.mjs` alone against a fresh reseed, which passed
+20/20; not an application defect, a test-ordering assumption between two independent scripts).

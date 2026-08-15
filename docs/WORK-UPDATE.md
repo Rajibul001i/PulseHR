@@ -49,6 +49,44 @@ every previously-overflowing mobile screenshot now measures exactly 390px, and t
 previously-stuck pages now show real loaded content. Full writeup in
 `docs/13-sqa-defect-report.md` §15.
 
+### 2. Navigation restructure + a second visual pass — four more real defects
+
+Direct feedback on the Plan & billing page specifically (screenshot attached, called "messy"),
+plus a request to move it out of the main sidebar and apply the design skills more broadly.
+
+- **Plan & billing is no longer in the sidebar's page list.** It's an account-level page,
+  checked rarely and only by HR_ADMIN — not a peer of Attendance or Leave. The sidebar's
+  existing plan summary (tier, seats, trial countdown, already shown to every role) is now
+  itself the link into `/plan` for HR_ADMIN, with the ⌘K command palette updated separately so
+  it's still searchable there. Every existing "upgrade to unlock" link elsewhere is unchanged.
+- **The pricing cards' dead space, fixed.** This is what the screenshot actually showed as
+  "messy" — Starter's card lists 4 features against Enterprise's 10, and the button pins to the
+  bottom of all three, so the shorter cards had a large blank gap above their button. Each card
+  now also lists what it *doesn't* include yet, dimmed with a lock icon — fills the space with
+  real information and doubles as the upsell the page exists to make.
+- **Three permanently-blank Dashboard cards for every HR admin, fixed.** Earned/Casual/Sick
+  leave balance cards read from the signed-in user's own employee record — which HR_ADMIN
+  accounts don't have (by design). Every HR admin has seen three `—` cards on every visit.
+  Replaced with org-level stats (pending approvals, employees needing attention) for that role.
+- **An unstyled native file input, fixed.** Profile's document upload and the public careers
+  page's CV upload both showed the browser's own white "Choose File" button sitting in an
+  otherwise fully dark-themed form — the one element on either page that visibly didn't belong.
+  Styled to match each page's own palette.
+- **Backend jargon leaked into Payslips' copy, fixed.** "Runs in the worker process, not the
+  API — CPU-bound..." explained to every HR admin why payroll is async, in engineering terms
+  nobody asked for. Replaced with a plain "runs in the background, stays responsive" sentence
+  that gives the same reassurance without the internals.
+- **Mobile confirmed EMPLOYEE-only**, per team direction — Manager/HR_ADMIN screens stay
+  desktop-oriented. Verified the EMPLOYEE role at 390px across every page it uses: no overflow
+  anywhere. Added a small scroll-shadow affordance to mobile data tables (Leave, Payslips) so a
+  swipeable column reads as "more this way," not "cut off."
+
+**Verified:** full regression on a freshly reseeded database (107 unit, 20 smoke, 64 bughunt —
+all green). Two scripts briefly showed failures on non-final runs from database state left over
+by a *previous* run of the same scripts in this pass, not from anything shipped — confirmed by
+re-running each in isolation against a clean reseed, both fully green. Full writeup, including
+that verification trail, in `docs/13-sqa-defect-report.md` §16.
+
 ---
 
 ## Session 4 — 13 August 2026

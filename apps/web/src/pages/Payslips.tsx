@@ -226,8 +226,8 @@ export function Payslips({ role }: { role: string }) {
           <div className="row">
             <div style={{ flex: 3 }}>
               <span className="notice">
-                Runs in the worker process, not the API — month-end payroll is CPU-bound and would
-                otherwise block every other request.
+                Payroll runs in the background, so the rest of PulseHR stays responsive while it
+                processes. This can take a moment for a large team.
               </span>
             </div>
             <div style={{ flex: 0, minWidth: 170 }}>

@@ -103,22 +103,22 @@ export function Dashboard({
 
       {loading ? (
         <StatSkeleton />
-      ) : (
+      ) : me?.employee ? (
         <div className="grid grid-4">
           <div className="card content-in" style={{ animationDelay: '0ms' }}>
             <div className="stat-label">Earned leave</div>
             <div className="stat-value">{balances.EARNED ?? '—'}</div>
-            <div className="stat-note">§117 · accrued 1 per 18 days worked</div>
+            <div className="stat-note">Labour Act §117 · accrued 1 per 18 days worked</div>
           </div>
           <div className="card content-in" style={{ animationDelay: '30ms' }}>
             <div className="stat-label">Casual leave</div>
             <div className="stat-value">{balances.CASUAL ?? '—'}</div>
-            <div className="stat-note">§115 · 10 days/year, lapses</div>
+            <div className="stat-note">Labour Act §115 · 10 days/year, lapses</div>
           </div>
           <div className="card content-in" style={{ animationDelay: '60ms' }}>
             <div className="stat-label">Sick leave</div>
             <div className="stat-value">{balances.SICK ?? '—'}</div>
-            <div className="stat-note">§116 · 14 days/year</div>
+            <div className="stat-note">Labour Act §116 · 14 days/year</div>
           </div>
           <div className="card content-in" style={{ animationDelay: '90ms' }}>
             <div className="stat-label">
@@ -129,6 +129,26 @@ export function Dashboard({
               {role === 'EMPLOYEE' ? 'See Leave' : <Link to="/leave">Review queue →</Link>}
             </div>
           </div>
+        </div>
+      ) : (
+        // HR_ADMIN has no employee record (seed.ts inserts the HR account straight into
+        // app_user, no matching employee row) -- so it has no personal leave balance to show.
+        // Four "—" cards used to sit here permanently for every admin. Org-level stats instead.
+        <div className="grid grid-2">
+          <div className="card content-in" style={{ animationDelay: '0ms' }}>
+            <div className="stat-label">Pending approvals</div>
+            <div className="stat-value">{pending.length}</div>
+            <div className="stat-note"><Link to="/leave">Review queue →</Link></div>
+          </div>
+          {atRisk !== null && (
+            <div className="card content-in" style={{ animationDelay: '30ms' }}>
+              <div className="stat-label">Needs attention</div>
+              <div className="stat-value">
+                {atRisk.filter((r) => r.band === 'ELEVATED' || r.band === 'HIGH').length}
+              </div>
+              <div className="stat-note">Elevated or high attrition risk, of {atRisk.length} scored</div>
+            </div>
+          )}
         </div>
       )}
 
