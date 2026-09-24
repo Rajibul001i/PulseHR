@@ -1,6 +1,6 @@
 # SQA Defect Report — SQA-2026-08-10
 
-**Prepared by:** Md. Muradujjaman — SQA Lead & Documentation Specialist
+**Prepared by:** Md. Munadujjaman — SQA Lead & Documentation Specialist
 **Build under test:** `ffe3d10` + subscription layer
 **Method:** adversarial black-box testing of the running API against the team's own
 `PulseHR_Features_Functions.docx` (9 features / 43 functions), the 49 user stories in the
@@ -558,65 +558,7 @@ experience than not showing them, since nothing told the user why.
   upgrade Growth→Enterprise, check the proration preview and resulting invoice, downgrade
   back to Growth, check the credit note.
 
-## 13. Addendum — 13 August 2026 — AI risk-explanation assistant
-
-Also not one of the 43 F1–F9 functions — this is a new capability layered on top of the
-existing F9 Attrition Risk scorecard (§6 above), not a change to F9 itself. F9's function
-count and the scorecard's own logic (`packages/core/src/attrition.ts`) are unchanged.
-
-**Scope, decided explicitly before building:** the request was to "include an AI agent" in
-the risk module. The scorecard already carries hard safety constraints — HR_ADMIN-only,
-advisory-only framing, MANAGER excluded from the at-risk list entirely (retaliation
-prevention), review scores deliberately kept out of the model (§6) — and an agent that could
-*act* (send messages, edit records, recommend a decision) would conflict with every one of
-them. Clarified with the requester and built as an **explain-only assistant**: an HR-admin
-chat panel on the score-detail page that answers questions about one score, grounded only in
-that score's own contribution data. It cannot take any action of any kind.
-
-- **What it is:** `POST /api/attrition/scores/:id/explain` (`apps/api/src/aiExplain.ts`),
-  calling the real Claude API (`claude-opus-5`) with a system prompt that restates the
-  scorecard's own constraints — advisory-only, no protected-characteristic speculation, no
-  review scores, explains but never recommends termination/pay/promotion action — plus the
-  score's contributions (`Repo.scoreExplainContext`, `apps/api/src/repo.ts`) as grounding.
-  Frontend: a chat panel on `AtRisk.tsx`, state kept client-side (this API has no
-  server-side chat session store), each send resends the full turn history.
-- **Same gates as the score-detail route it sits beside:** `requireRole('HR_ADMIN')` +
-  `requireFeature('attrition_full')`, and `scoreExplainContext` scopes by `organisation_id`
-  the same way every other repo method does (P0-5) — verified with a real cross-tenant call,
-  not just code review (see BUG-24 below).
-- **Deliberately excluded from the grounding data:** the employee's `gender` column, even
-  though the query could trivially join it. That field exists in the schema for exactly one
-  purpose — the quarterly bias audit (§9's note on `05-attrition-risk-spec.md`) — and handing
-  it to a model as "context" is precisely the kind of scope creep this report has flagged
-  elsewhere (§6's F6.3/F9.1 conflict). The system prompt separately instructs the model not
-  to speculate about protected characteristics even if the admin raises them, as defense in
-  depth beyond simply not being given the data.
-- **Fails clearly, not silently:** no Anthropic API key is configured on the dev/CI
-  environment (or the free-tier Render deploy, until the operator adds one) — this is a
-  student demo, not a funded deployment. The endpoint returns `503` with a plain-English
-  message naming the missing environment variable, not a 500 or a hung request. The frontend
-  renders that message inline in the chat panel rather than a toast, and keeps the admin's
-  typed question in the input box instead of discarding it on failure.
-
-### BUG-24 — Severity: N/A · not a defect, a coverage note
-
-No defect was found — recorded here because the review process this report follows is to
-verify claims against behavior, not to only write up failures. 7 adversarial checks added to
-`bughunt.mjs`: role gating (MANAGER and EMPLOYEE both refused, matching the at-risk list's
-own gate), malformed turn history rejected (empty array, and a history not ending on a user
-turn), a bogus score id is a 404 not a crash, and — the one that actually exercises new
-code — **a cross-tenant request is a 404, verified by temporarily lifting Bengal Logistics
-to Enterprise tier first** so the 404 provably comes from `organisation_id` scoping and not
-from tier-gating (which BUG-17 already covers separately). The last check branches on
-whichever of the two legitimate outcomes the environment actually produces (503 unconfigured,
-or 200 with a real answer) rather than assuming no key is present, so it stays meaningful if
-this ever runs somewhere `ANTHROPIC_API_KEY` is set.
-
-- **Re-verified:** `bughunt.mjs` BUG-24 (7 assertions, all passing) and a Playwright pass
-  confirming the chat panel renders, accepts input, and surfaces the 503 notice cleanly
-  in the panel itself rather than breaking the page.
-
-## 14. Addendum — 13 August 2026 — load/stress test found two real concurrency defects
+## 13. Addendum — 13 August 2026 — load/stress test found two real concurrency defects
 
 Full report: [`17-load-test-report.md`](17-load-test-report.md). Summarized here because
 this is exactly the class of defect this report exists to catch — a gap between what the
@@ -647,7 +589,7 @@ test is unchanged and still passes.
 new check BUG-25) on a clean reseed+restart, then the load test itself re-run: 16,859
 requests, zero genuine errors, down from 85 failures beforehand.
 
-## 15. Addendum — 15 August 2026 — full-app visual/UX audit, seven real defects
+## 14. Addendum — 15 August 2026 — full-app visual/UX audit, seven real defects
 
 Every earlier design pass this project has done touched specific pages (the rebrand, the
 `.row`/`.row-tight` layout fix in §11, the careers redesign in item 9 of `WORK-UPDATE.md`).
@@ -738,18 +680,18 @@ to a developer reading the code and were never user-facing. Grepped the rest of 
 `NFR-\d\d`) and confirmed no other instance is inside rendered JSX text.
 
 **Re-verified:** full regression (107 unit, 30 smoke, 64 bughunt — all green, unchanged from
-§14 since no backend behavior changed) plus a fresh Playwright screenshot pass — every one of
+§13 since no backend behavior changed) plus a fresh Playwright screenshot pass — every one of
 the 20 desktop+mobile page screenshots re-captured after the fixes, confirming each defect's
 specific symptom is gone (Documents/Objectives/Review-scores sections load instead of sticking
 on their skeleton; Payslips shows a real picker and real data instead of a raw error; every
 previously 1084px/963px/569px mobile screenshot now measures exactly 390px) and that nothing
 else regressed.
 
-## 16. Addendum — 15 August 2026 — navigation restructure and a second visual pass
+## 15. Addendum — 15 August 2026 — navigation restructure and a second visual pass
 
-Follow-up to §15, prompted by a team member flagging the **Plan & billing** page specifically
+Follow-up to §14, prompted by a team member flagging the **Plan & billing** page specifically
 as "messy" (screenshot attached) and asking for it out of the main sidebar list. Same method
-as §15 — real seeded data, Playwright screenshots, desktop (1360px) and mobile (390px) — but
+as §14 — real seeded data, Playwright screenshots, desktop (1360px) and mobile (390px) — but
 narrower scope: the pages a first screenshot pointed at, plus a follow-up sweep of the rest of
 the app for the same class of issue. Four more real defects found; all four fixed.
 
@@ -786,7 +728,7 @@ nothing.
 
 `Dashboard.tsx`'s top stat row unconditionally rendered Earned/Casual/Sick leave balance cards
 from `me?.balances`. HR_ADMIN accounts are administrative logins with no matching `employee`
-row (by design, per §15's BUG-26) — so `balances` was always `{}` for that role, and those three
+row (by design, per §14's BUG-26) — so `balances` was always `{}` for that role, and those three
 cards showed a bare `—` on every single HR admin's dashboard, forever. A quarter of the page's
 top row was permanently dead UI for the role that opens this page most.
 
@@ -814,7 +756,7 @@ page's teal-ink palette instead of inheriting the dashboard's dark one.
 `Payslips.tsx` told every HR admin: *"Runs in the worker process, not the API — month-end
 payroll is CPU-bound and would otherwise block every other request."* True, and the reason
 payroll is async (ADR-004) — but it's an explanation of the system's internals, not something
-an HR admin needs or can act on. Same defect class as §15's BUG-29 (leaked citations), different
+an HR admin needs or can act on. Same defect class as §14's BUG-29 (leaked citations), different
 mechanism: that was an internal ID bleeding through, this is engineering reasoning bleeding
 through, in a spot where a plain user-facing sentence should be.
 
@@ -836,7 +778,7 @@ numbering.
 Manager and HR_ADMIN screens (attendance grids, the Kanban board, employee pickers, billing)
 are accepted as desktop-oriented — confirmed with the team rather than assumed. Verified the
 EMPLOYEE role specifically at 390px across Dashboard, Profile, Attendance, Leave, Payslips,
-Notices and Performance: no horizontal overflow on any page (confirming §15's BUG-28 fix still
+Notices and Performance: no horizontal overflow on any page (confirming §14's BUG-28 fix still
 holds), all empty/read states intact. Added one small affordance while there: `.table-card`
 tables on mobile (Leave's request history, Payslips' list) now show a right-edge scroll shadow
 — two stacked gradients, one scrolling with the content and one fixed to the viewport, that
@@ -848,7 +790,7 @@ score table, 3 narrow columns) by inspecting the same page at the same viewport.
 **Re-verified:** full regression on a freshly reseeded database — 107 unit tests, 64 bughunt
 checks (0 defects; the two isolated `bughunt.mjs` re-runs against the same live server that
 briefly showed BUG-03/BUG-13-shaped failures were confirmed as the already-documented rate-
-limiter/OKR-weight test-state contamination pattern from §14, not new regressions — a single
+limiter/OKR-weight test-state contamination pattern from §13, not new regressions — a single
 clean run against a freshly seeded database showed 0 defects), and 20 smoke checks (the one
 transient failure, "org A sees its own employees — got 21," was `bughunt.mjs`'s own BUG-14
 candidate-to-employee conversion test having run first against the same database inside the
@@ -856,7 +798,7 @@ same verification pass, inflating the count by exactly one before `smoke.mjs`'s 
 `=== 20` ran — confirmed by re-running `smoke.mjs` alone against a fresh reseed, which passed
 20/20; not an application defect, a test-ordering assumption between two independent scripts).
 
-## 17. Addendum — 15 August 2026 — PostgreSQL support (ADR-009's production target, built)
+## 16. Addendum — 15 August 2026 — PostgreSQL support (ADR-009's production target, built)
 
 "The proper database, as suggested in the proposal." ADR-009 always specified SQLite as the
 prototype and PostgreSQL as production; this closes that gap rather than opening a new one.
@@ -913,10 +855,8 @@ key result's position in the create-objective request, queried with `ORDER BY so
 
 ### Verification: pg-mem, not a real local PostgreSQL
 
-No real PostgreSQL instance was available to test against locally (no admin/elevation in this
-environment, and installing one system-wide would have violated the user's standing
-"everything on E: drive, nothing on C:" constraint — C: was at 98% capacity when this work
-started). `pg-mem`, an in-memory PostgreSQL-compatible SQL engine, was substituted for the
+No real PostgreSQL instance was available to test against locally (no admin/elevation on the
+development machine). `pg-mem`, an in-memory PostgreSQL-compatible SQL engine, was substituted for the
 real `pg` package via Node's built-in `node:test` module mocking
 (`apps/api/src/verify-postgres-adapter.mjs`, `npm run verify:postgres` from `apps/api`) — this
 exercises the actual `db.ts` → `db-postgres.ts` → `repo.ts` code path, not a reimplementation

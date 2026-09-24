@@ -52,7 +52,6 @@ import { enqueue, jobStatus } from './jobs/queue.js';
 import './jobs/runPayroll.js';
 import './jobs/scoreAll.js';
 import { requireFeature, subscriptionOf } from './entitlement.js';
-import { explainAttritionScore, AiNotConfiguredError, type ChatTurn } from './aiExplain.js';
 
 await openDb();
 
@@ -990,55 +989,6 @@ app.get(
         'Advisory for retention outreach only. Using this score in a termination, ' +
         'promotion, appraisal or pay decision is a prohibited use.',
     });
-  }),
-);
-
-/**
- * F9 — explain-only AI assistant. Same role + feature gate as the score-detail route above;
- * this is a Q&A layer over that same data, not a new capability. It never sees another
- * employee's data (scoped to one scoreId) and cannot act — see aiExplain.ts's system prompt
- * for the enforced constraints.
- */
-app.post(
-  '/api/attrition/scores/:id/explain',
-  requireRole('HR_ADMIN'),
-  requireFeature('attrition_full'),
-  asyncHandler(async (req, res) => {
-    const { turns } = z
-      .object({
-        turns: z
-          .array(
-            z.object({
-              role: z.enum(['user', 'assistant']),
-              content: z.string().trim().min(1).max(1000),
-            }),
-          )
-          .min(1)
-          .max(20),
-      })
-      .parse(req.body);
-
-    if (turns[turns.length - 1]!.role !== 'user') {
-      res.status(400).json({ error: 'The last turn must be from the user.' });
-      return;
-    }
-
-    const found = await repoOf(req).scoreExplainContext(req.params.id!);
-    if (!found) {
-      res.status(404).json({ error: 'Not found' });
-      return;
-    }
-
-    try {
-      const reply = await explainAttritionScore(found, turns as ChatTurn[]);
-      res.json({ reply });
-    } catch (err) {
-      if (err instanceof AiNotConfiguredError) {
-        res.status(503).json({ error: err.message });
-        return;
-      }
-      throw err;
-    }
   }),
 );
 

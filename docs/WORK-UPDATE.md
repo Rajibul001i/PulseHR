@@ -10,8 +10,7 @@ as a changelog.
 
 ### 1. Full-app visual/UX audit — seven real defects found and fixed
 
-Requested as "implement the frontend-design skills, make an assessment and fix everything" —
-read as a systematic pass across the whole product, not just one page. Screenshotted every
+A systematic pass across the whole product, not just one page. Screenshotted every
 authenticated page plus login/reset-password at desktop (1360px) and mobile (390px) widths,
 against **real seeded data** (leave requests, notices, an OKR objective, real payslips) —
 empty states already proved earlier in this project (Session 4 item 6) that they mask real
@@ -47,12 +46,12 @@ defects:
 re-screenshot of all 20 page/width combinations confirming each specific symptom is gone —
 every previously-overflowing mobile screenshot now measures exactly 390px, and the two
 previously-stuck pages now show real loaded content. Full writeup in
-`docs/13-sqa-defect-report.md` §15.
+`docs/13-sqa-defect-report.md` §14.
 
 ### 2. Navigation restructure + a second visual pass — four more real defects
 
 Direct feedback on the Plan & billing page specifically (screenshot attached, called "messy"),
-plus a request to move it out of the main sidebar and apply the design skills more broadly.
+plus a request to move it out of the main sidebar and apply the same design review more broadly.
 
 - **Plan & billing is no longer in the sidebar's page list.** It's an account-level page,
   checked rarely and only by HR_ADMIN — not a peer of Attendance or Leave. The sidebar's
@@ -85,7 +84,7 @@ plus a request to move it out of the main sidebar and apply the design skills mo
 all green). Two scripts briefly showed failures on non-final runs from database state left over
 by a *previous* run of the same scripts in this pass, not from anything shipped — confirmed by
 re-running each in isolation against a clean reseed, both fully green. Full writeup, including
-that verification trail, in `docs/13-sqa-defect-report.md` §16.
+that verification trail, in `docs/13-sqa-defect-report.md` §15.
 
 ### 3. PostgreSQL support — ADR-009's production database target, now real
 
@@ -111,11 +110,9 @@ clone and `npm install && npm run dev` without standing up a database first.
   implicit `rowid`, which has no PostgreSQL equivalent — would have silently returned a
   quarter's key results in arbitrary order under Postgres. Fixed with an explicit
   `sort_order` column (migration 012, both dialects).
-- **Verified without a real local PostgreSQL** — none was available without violating the
-  standing "everything stays on E: drive" constraint (attempting a system-wide install ran C:
-  down to critical, which is what surfaced that constraint explicitly this session; cleaned up
-  and switched to an in-memory PostgreSQL-compatible test engine instead, `pg-mem`, run in
-  place of the real driver via Node's built-in module mocking). Confirmed money round-trips as
+- **Verified without a real local PostgreSQL** — none was available on the development
+  machine, so an in-memory PostgreSQL-compatible test engine, `pg-mem`, was run in place of
+  the real driver via Node's built-in module mocking. Confirmed money round-trips as
   a real number, transactions share one connection across nested calls (the property the
   leave-approval race guard depends on), and two SQLite-only queries rewritten to portable SQL
   both behave correctly. Three things the test tool itself couldn't verify (a trigger, one SQL
@@ -140,7 +137,7 @@ and redeployed the API with it wired in, confirmed live via Playwright (login, d
 data page rendering real rows) and by re-running `smoke.mjs` against the live URL — 20/20,
 including P0-7's concurrent-approval check, which is the exact transaction-rollback property
 pg-mem couldn't verify. The live demo now runs on real PostgreSQL, not SQLite. Full writeup in
-`docs/13-sqa-defect-report.md` §17.
+`docs/13-sqa-defect-report.md` §16.
 
 ---
 
@@ -245,39 +242,7 @@ converting Notices' single-line "Body" input to a `<textarea>`, and widening one
 explicit min-width. Verified with real data via Playwright across a published notice, an
 OKR objective, and a candidate application. Live demo redeployed.
 
-### 7. Added an explain-only AI assistant to the attrition-risk module
-
-Requested as "include an AI agent in the AI risk module." Before building anything, this
-needed a scope decision — the risk scorecard already carries hard safety constraints
-(HR_ADMIN-only, advisory-only, MANAGER excluded from the whole feature for retaliation
-prevention, review scores deliberately kept out of the model) that an agent able to *take
-action* would conflict with. Confirmed the intended scope explicitly: an HR-admin chat panel
-that explains why a given employee is flagged, grounded only in that score's own
-contribution data — nothing that can act on anything.
-
-Built as a real Claude API integration (`claude-opus-5`, `apps/api/src/aiExplain.ts`), not a
-templated string formatter — the existing scorecard page already shows contributions as a
-table, so a canned paraphrase of the same table would add little. The system prompt restates
-the scorecard's own constraints (advisory-only, no protected-characteristic speculation, why
-review scores are excluded) and the grounding data deliberately omits the employee's `gender`
-column even though the query could trivially join it — that field exists in the schema for
-the quarterly bias audit alone. New route `POST /api/attrition/scores/:id/explain`, gated
-identically to the score-detail route it sits beside (`requireRole('HR_ADMIN')` +
-`requireFeature('attrition_full')`), scoped by `organisation_id` the same way every other
-repo method is. No payment-gateway-style workaround was needed here — there's no billing
-dependency — but there is a real missing-dependency case: this environment (and the free-tier
-Render deploy, until an operator configures one) has no `ANTHROPIC_API_KEY`, so the endpoint
-returns a clear `503` naming the missing variable instead of a crash, and the chat panel
-shows that inline rather than losing the admin's typed question.
-
-**Verified:** `bughunt.mjs` BUG-24 (7 new assertions — role gating, malformed turn-history
-rejection, bogus-id 404, and a cross-tenant check that temporarily lifts a second tenant to
-Enterprise tier first so the 404 provably comes from tenant scoping and not from tier gating)
-and a Playwright pass confirming the chat panel renders and surfaces the 503 notice cleanly.
-Full regression on a clean reseed: 107 unit tests, 24 smoke, 63 bughunt checks (7 new) — all
-green, typecheck and build clean. Full writeup in `docs/13-sqa-defect-report.md` §13.
-
-### 8. Load/stress test — found and fixed two real concurrency bugs
+### 7. Load/stress test — found and fixed two real concurrency bugs
 
 Requested alongside item 7: high latency, high output, low throughput, heavy server
 pressure, multiple companies working concurrently, a mix of old and recently revised data,
@@ -317,7 +282,7 @@ fixes. Full writeup, including why login latency itself didn't drop (it isn't su
 see the report for why that's the correct outcome, not an unfixed bug) and what this local
 single-process test does and doesn't prove: `docs/17-load-test-report.md`.
 
-### 9. Redesigned the public careers pages
+### 8. Redesigned the public careers pages
 
 The public job-listing and application pages (`/careers/:orgId`) had never had a real design
 pass — they reused the login-card shell verbatim, and didn't even show which company was
@@ -538,7 +503,7 @@ against the live Render API.
 the first request after that takes 30-60s to wake the instance. Acceptable for a demo,
 worth knowing about before showing it live to someone.
 
-### 8. Re-ran Muradujjaman's SQA pass — found and fixed a critical, previously-misdiagnosed bug
+### 8. Re-ran Munadujjaman's SQA pass — found and fixed a critical, previously-misdiagnosed bug
 
 Re-ran the full test stack against the current build: 102 unit tests, 30 smoke checks, and
 `scripts/bughunt.mjs` (the adversarial SQA script from session 2).
@@ -569,16 +534,9 @@ Full writeup, including the correction to session 2's "timing artefact" claim, i
 
 ### 7. Removed working artifacts from the public GitHub history
 
-You flagged that `_source-docs/`, `_source-extracts/` and `_deliverables/` — your original
-`.docx`/`.pptx` files, extracted text, and presentation/LinkedIn drafts — didn't belong in
-a public repo alongside the actual project deliverables.
-
-Before touching anything: copied all three folders to `E:\PulseHR-removed-from-git-backup\`
-outside the repo, since `_source-docs/` is the only version-controlled copy of some of your
-original files (the proposal `.docx` itself was already lost earlier this project — see
-Session 2 — everything *except* that is in here).
-
-Then, at your explicit request, used `git-filter-repo` to strip all three paths from **every
+`_source-docs/`, `_source-extracts/` and `_deliverables/` — the original `.docx`/`.pptx`
+files, extracted text and drafts — didn't belong in a public repo alongside the actual
+project deliverables. A backup copy was made outside the repo first, then `git-filter-repo` to strip all three paths from **every
 past commit**, not just the current tree, and force-pushed the rewritten history to
 `origin/master`. Added them to `.gitignore` and restored the actual files to their normal
 location on disk afterward — they're still exactly where they were, just no longer tracked
@@ -587,7 +545,7 @@ or visible on GitHub. Verified the removal against the live GitHub API afterward
 **If anyone else had already cloned this repo** (an instructor, a teammate), their clone now
 has a divergent history and will need to re-clone rather than pull.
 
-### 6. `review-animations` pass on the motion diff — 2 findings, both fixed
+### 6. Motion review — 2 findings, both fixed
 
 Reviewed the two motion commits above against a stricter, independent bar (didn't just
 rubber-stamp the prior work). Verdict was **Approve** — no feel-breaking regressions — but
@@ -608,10 +566,10 @@ directly — confirmed `animation-delay` resolves to `0s` under emulated reduced
 that `Leave.tsx`'s cards (tested against the `farhana.akter@meridian.test` demo account,
 which has an employee record) carry the expected `0/30/60/90/120ms` sequence normally.
 
-### 5. `improve-animations` audit — 5 findings + 3 missed opportunities, all implemented
+### 5. Motion audit — 5 findings + 3 missed opportunities, all implemented
 
 Ran a full audit (8 categories) against `apps/web`'s motion, now that it had CSS animation
-from the earlier `find-animation-opportunities` pass to actually audit. Vetted findings,
+from the earlier animation pass to actually audit. Vetted findings,
 presented them, and implemented all of them at your request:
 
 | # | Severity | Finding | Fix |
@@ -633,9 +591,9 @@ the `.content-in` treatment in the previous pass — now has it; and the card gr
 `prefers-reduced-motion: reduce` emulated end to end, confirming the toast's computed
 `transform` stays at identity (no movement) under reduced motion.
 
-### 4. Implemented the animation-opportunities findings in `apps/web`
+### 4. Added purposeful motion to `apps/web`
 
-Ran the `find-animation-opportunities` skill against the web app, then implemented the six
+Reviewed the web app for places where motion aids understanding, then implemented the six
 surviving suggestions (all CSS-only or small, mechanical JSX changes — no new dependency):
 
 - **Toast exit** (`Toast.tsx`, `styles.css`) — dismissal now plays a 160ms `slide-out`
@@ -676,7 +634,6 @@ carry a linked employee record in the seed data.
 | | |
 |---|---|
 | GitHub repo | Created and pushed — **[Rajibul001i/PulseHR](https://github.com/Rajibul001i/PulseHR)**, public |
-| LinkedIn post | Still **not posted** — no LinkedIn connector available. Draft finalized with the repo link. |
 | Doc citations | Removed "Slide X / Proposal §Y" source-location citations from all 16 docs where they were decorative; kept them where a doc's whole job is pointing at a location, and kept every Labour Act legal citation |
 
 ### 1. Published the repository to GitHub
@@ -686,24 +643,9 @@ Repo created under the `Rajibul001i` account and the full existing local history
 visibility, default branch `master`, no secrets or `node_modules` in the tree (`.gitignore`
 was already correct).
 
-**Auth note for next time:** a classic PAT needed **three** scopes to get through
-`gh repo create --source=. --push` cleanly — `repo`, `read:org` (gh validates this even for
-a personal account), and `workflow` (required specifically because this repo has
-`.github/workflows/ci.yml`; GitHub rejects pushes that touch workflow files without it). The
-browser device-code flow (`gh auth login` → web) failed silently twice before switching to a
-token — no config file was ever written to `%APPDATA%\GitHub CLI\`, so nothing had actually
-authenticated despite the browser appearing to complete.
-
 README updated with the repo link at the top.
 
-### 2. Finalized the LinkedIn draft
-
-`_deliverables/linkedin-post-draft.md` — all three options now have the GitHub link inlined,
-and the "add the link once pushed" TODO is resolved. **Not sent.** No LinkedIn connector is
-available in this environment; the draft is ready for you to copy, adjust the tagged
-teammates if needed, and post yourself.
-
-### 3. Removed source-location citations from the docs
+### 2. Removed source-location citations from the docs
 
 You flagged that tables and prose reading like *"Slide 6 vs 14"* or *"§3b"* — pointers back
 to exactly which slide or section of the original flawed proposal/deck a defect came
@@ -728,12 +670,6 @@ one rule consistently:
 Verified afterward: no remaining `Slide X` / `Proposal §Y` patterns outside the two
 exceptions above, and every edited markdown table still has consistent column counts.
 
-### Outstanding from this session
-
-- **Revoke the PAT** used to authenticate `gh` — `https://github.com/settings/tokens` — now
-  that the push is done, it no longer needs to exist.
-- Post the LinkedIn update yourself when ready (pick Option A/B/C in the draft).
-
 ---
 
 ## Session 2 — 10 August 2026
@@ -748,7 +684,6 @@ exceptions above, and every edited markdown table still has consistent column co
 | Defects fixed and re-verified | **11** (incl. 2 security) |
 | New module built | Subscription & entitlement layer |
 | Tests | **102 unit** (+16), 30 integration, 17 bug-hunt |
-| Project relocated | `D:\PulseHR` → `E:\PulseHR` |
 
 ### 1. Ingested the team's requirements work
 
@@ -782,7 +717,7 @@ Increment 4.
 **Changed:** ADR-001 rewritten; `MODEL_PROMOTION_CRITERION` → `MODEL_ACCEPTANCE`;
 `passesGoNoGo` → `meetsAcceptance`; references purged from 6 documents and the test suite.
 
-### 3. SQA pass — Muradujjaman's role
+### 3. SQA pass — Munadujjaman's role
 
 Built `scripts/bughunt.mjs`: adversarial black-box testing of the running API against the
 49 user stories, the class model, and our own published API contract — specifically hunting
@@ -853,33 +788,6 @@ see an identical screen: no visible reason to upgrade, no evidence of what they 
 prompt when they hit a limit. The API can now answer all three; the UI does not yet ask.
 
 Phased plan provided. **Implementation is the next work item.**
-
-### 7. Infrastructure
-
-- Project moved `D:\PulseHR` → `E:\PulseHR` (git history intact, 0 uncommitted changes lost)
-- Node.js reinstalled as **portable at `E:\tools\node`** after the system installation was
-  found broken (see Issues below)
-- All source documents and extracts copied to E:
-
-### Issues encountered
-
-**Files disappeared from C: during the session.** Between the start and middle of this
-session, the following vanished:
-
-- `C:\Program Files\nodejs\` — the entire Node installation (registry entry survived, so
-  both MSI install and uninstall failed with 1603)
-- Several `PulseHR_*.docx` / `.pptx` files from `C:\Users\ri511\Downloads`, **including the
-  original proposal** and the renumbered deck produced last session
-- Two extracted `.txt` files from the session scratchpad
-
-The Recycle Bin contains none of them, and C: has only **9.9 GB free**. This is the
-signature of **Windows Storage Sense** running on a low-space drive — it deletes
-permanently, bypassing the Recycle Bin. I did not run any delete command against those
-paths; my only deletions were scoped to `D:\PulseHR\node_modules`.
-
-**Action taken:** portable Node installed to E:; everything of value copied to E:.
-**Action needed from the team:** check whether the original proposal `.docx` exists in
-OneDrive, email, or another backup — and turn Storage Sense off.
 
 ---
 

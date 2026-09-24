@@ -12,7 +12,6 @@
     "verify:postgres": "tsx --test --experimental-test-module-mocks src/verify-postgres-adapter.mjs"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.116.0",
     "@pulsehr/core": "*",
     "cors": "^2.8.5",
     "express": "^4.21.2",

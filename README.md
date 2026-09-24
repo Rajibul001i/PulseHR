@@ -12,7 +12,7 @@ period of inactivity takes ~30-60s to wake up, and the database reseeds determin
 every restart, so demo data is always fresh, never stale or corrupted. See
 [Live demo hosting](#live-demo-hosting) if it is down.
 **Prototype picker:** https://rajibul001i.github.io/PulseHR/ — three exploratory variants of
-the attrition-risk score view (see `/prototype` skill), not yet promoted into the app above.
+the attrition-risk score view, not yet promoted into the app above.
 
 ---
 
@@ -73,7 +73,7 @@ install, no Docker.
 | `npx tsc -b` | **clean**, TypeScript strict across 3 workspaces |
 | `npm run build` | frontend builds, 214 kB (70 kB gzipped) |
 | `node scripts/smoke.mjs` | **30 / 30 passing** against a live API |
-| `node scripts/bughunt.mjs` | **64 checks, 0 defects** (run on a fresh seed) |
+| `node scripts/bughunt.mjs` | **57 checks, 0 defects** (run on a fresh seed) |
 | Payslip immutability trigger | verified — `UPDATE` rejected at the database level |
 
 ## Documentation
@@ -119,7 +119,7 @@ packages/core/     Pure domain logic — money, dates, leave, payroll, attrition
 apps/api/          Express API + worker jobs + migrations + seeder.
 apps/web/          React 18 SPA (Vite, Redux Toolkit).
 scripts/smoke.mjs  30 end-to-end checks, each mapped to a defect.
-scripts/bughunt.mjs 64 regression checks for every SQA defect found so far.
+scripts/bughunt.mjs 57 regression checks for every SQA defect found so far.
 scripts/demo.mjs   One-command demo: seed, score, payroll, serve web + API.
 tools/             fix_deck_numbering.py — repairs the deck's slide numbers.
 docs/              Groundwork.

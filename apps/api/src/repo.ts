@@ -677,27 +677,6 @@ export class Repo {
     };
   }
 
-  /**
-   * F9 — grounding data for the AI explain-only assistant. Deliberately omits `gender`
-   * (spec §9: used only for the quarterly bias audit, never fed to anything else) even
-   * though the employee row carries it — this method's job is to hand the assistant exactly
-   * what the scorecard page shows a human, nothing more.
-   */
-  async scoreExplainContext(scoreId: string): Promise<{ score: Row; contributions: Row[]; employee: Row } | undefined> {
-    const found = await this.scoreWithContributions(scoreId);
-    if (!found) return undefined;
-    const employee = await one(
-      `SELECT e.full_name, e.designation, e.hire_date, d.name AS department_name
-         FROM employee e
-         LEFT JOIN department d ON d.id = e.department_id
-        WHERE e.id = ? AND e.organisation_id = ?`,
-      found.score.employee_id,
-      this.orgId,
-    );
-    if (!employee) return undefined;
-    return { ...found, employee };
-  }
-
   /* -------------------------------- OKR ----------------------------------
    * F6 Performance Management — US-30..US-33.
    */

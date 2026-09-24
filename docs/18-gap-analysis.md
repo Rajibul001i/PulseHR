@@ -2,7 +2,7 @@
 
 Checked on 24 Sep 2026: every claim in *PulseHR_Project_Report* and *PulseHR_Report_Presentation*
 against the code on `master` (b7898e7). Verified locally: 107/107 unit tests, typecheck clean,
-30/30 smoke, 64 bug-hunt checks with 0 defects.
+30/30 smoke, 57 bug-hunt checks with 0 defects.
 
 ## Fixed in this pass
 

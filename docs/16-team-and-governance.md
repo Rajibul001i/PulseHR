@@ -16,12 +16,10 @@ means nobody owns it.
 | **Md. Rayhan Babu Emon** | Frontend UI/UX Developer | All 16 screens, React SPA, Redux state, subscription-aware shell | [`12-ui-modernisation.md`](12-ui-modernisation.md) |
 | **Md. Jakariya** | Database Administrator | Schema, normalisation, indexing, migrations, query performance | [`14-data-layer.md`](14-data-layer.md), [`03-data-model.md`](03-data-model.md) |
 | **Md. Nuraafrid Rouf** | AI Algorithm & Logic Engineer | F9 attrition engine, weighting, calibration, evaluation | [`15-model-card.md`](15-model-card.md), [`05-attrition-risk-spec.md`](05-attrition-risk-spec.md) |
-| **Md. Muradujjaman** | SQA Lead & Documentation Specialist | Test strategy, defect management, UML, formal documentation | [`13-sqa-defect-report.md`](13-sqa-defect-report.md), [`07-test-plan.md`](07-test-plan.md) |
+| **Md. Munadujjaman** | SQA Lead & Documentation Specialist | Test strategy, defect management, UML, formal documentation | [`13-sqa-defect-report.md`](13-sqa-defect-report.md), [`07-test-plan.md`](07-test-plan.md) |
 
-> **Naming note:** the proposal spells this member **Muradujjaman** in Table 0 and
-> **Munadujjaman** in Appendix E; the deck uses both. It appears in at least six places
-> across the submission. Settle the correct spelling and make it consistent — it is a
-> person's name on a graded document.
+> **Naming note:** the proposal spelled this member two ways (Muradujjaman / Munadujjaman).
+> Settled as **Munadujjaman**, matching the final report.
 
 ### Feature ownership
 

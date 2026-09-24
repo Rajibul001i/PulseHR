@@ -1,6 +1,6 @@
 # Load / Stress Test Report — 13 August 2026
 
-**Owner:** Md. Muradujjaman — SQA Lead & Documentation Specialist
+**Owner:** Md. Munadujjaman — SQA Lead & Documentation Specialist
 **Script:** [`scripts/loadtest.mjs`](../scripts/loadtest.mjs)
 **Target:** local dev only — **deliberately not the live Render demo**
 

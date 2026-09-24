@@ -3,7 +3,7 @@
 **Resolves:** P0-5, P0-7, P0-8, P1-18
 **Prototype schema:** `apps/api/migrations/001_init.sql` (SQLite dialect, ADR-009)
 **Production schema:** `apps/api/migrations-postgres/*.sql` (PostgreSQL dialect, implemented
-15 August 2026 — see `docs/13-sqa-defect-report.md` §17 for the migration writeup and what
+15 August 2026 — see `docs/13-sqa-defect-report.md` §16 for the migration writeup and what
 deliberately differs from §3 below). `db.ts` picks the backend automatically based on whether
 `DATABASE_URL` is set; both share the same `Repo` class and SQL text.
 
@@ -52,7 +52,7 @@ migration, and the reason each exists.
 > here, for reasons that only became concrete during implementation — each is annotated
 > where it applies. Payslip immutability (the trigger) was built exactly as designed.
 > Row-Level Security and the leave-overlap exclusion constraint are both still open — see
-> `docs/13-sqa-defect-report.md` §17 for the full reasoning and status of everything in this
+> `docs/13-sqa-defect-report.md` §16 for the full reasoning and status of everything in this
 > section, not just the money/timestamp deviations.
 
 ### Tenant isolation (ADR-003)
