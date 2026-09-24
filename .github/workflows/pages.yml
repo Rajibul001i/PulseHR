@@ -1,0 +1,60 @@
+# Keeps the GitHub Pages copy of the live demo (rajibul001i.github.io/PulseHR/app) in step
+# with master. It used to be built and pushed by hand, so it fell weeks behind the code.
+#
+# Only app/ on the gh-pages branch is replaced; the prototype picker at the branch root and
+# the SPA 404.html redirect are left as they are. The API it talks to is the Render service.
+
+name: Deploy GitHub Pages demo
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: pages-demo
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Build the web app for /PulseHR/app/
+        working-directory: apps/web
+        env:
+          VITE_API_BASE: https://pulsehr-api-n7il.onrender.com/api
+        run: npx vite build --base=/PulseHR/app/ --outDir "$RUNNER_TEMP/app" --emptyOutDir
+
+      - name: Check out gh-pages
+        uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+          path: gh-pages
+
+      - name: Replace app/ and push if it changed
+        working-directory: gh-pages
+        run: |
+          rm -rf app
+          cp -r "$RUNNER_TEMP/app" app
+          git add -A app
+          if git diff --cached --quiet; then
+            echo "No change to the demo build."
+            exit 0
+          fi
+          git config user.name "Team Pulse"
+          git config user.email "ri8502744@gmail.com"
+          git commit -m "Redeploy live demo from ${GITHUB_SHA::7}"
+          git push origin gh-pages
