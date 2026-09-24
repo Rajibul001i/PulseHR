@@ -176,6 +176,22 @@ export async function consumePasswordResetToken(token: string): Promise<string |
   return String(row.user_id);
 }
 
+/* ---------------------------- deactivation (F1.5) -------------------------- */
+// Revoking refresh sessions stops a separated employee from getting a NEW access token, but
+// the one they hold is valid for up to 15 minutes. Deactivated accounts are therefore also
+// refused here, on every request, so access ends immediately.
+
+const deactivatedUsers = new Set<string>();
+
+export function markDeactivated(userId: string): void {
+  deactivatedUsers.add(userId);
+}
+
+/** Called once at start-up so a restart doesn't forget who was deactivated. */
+export async function loadDeactivatedUsers(): Promise<void> {
+  for (const row of await all('SELECT id FROM app_user WHERE is_active = 0')) deactivatedUsers.add(String(row.id));
+}
+
 /* ------------------------------ middleware ------------------------------- */
 
 export function authenticate(req: Request, res: Response, next: NextFunction): void {
@@ -186,6 +202,10 @@ export function authenticate(req: Request, res: Response, next: NextFunction): v
   }
   try {
     const payload = jwt.verify(header.slice(7), JWT_SECRET) as jwt.JwtPayload;
+    if (deactivatedUsers.has(String(payload.sub))) {
+      res.status(401).json({ error: 'This account has been deactivated' });
+      return;
+    }
     req.principal = {
       userId: String(payload.sub),
       organisationId: String(payload.org),

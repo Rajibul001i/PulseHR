@@ -18,6 +18,8 @@
     "seed": "npm run seed -w @pulsehr/api",
     "job:score": "npm run job:score -w @pulsehr/api",
     "job:payroll": "npm run job:payroll -w @pulsehr/api",
+    "job:absences": "npm run job:absences -w @pulsehr/api",
+    "job:bias-audit": "npm run job:bias-audit -w @pulsehr/api",
     "build": "npm run build -w @pulsehr/web",
     "demo": "npm run build && node scripts/demo.mjs"
   },

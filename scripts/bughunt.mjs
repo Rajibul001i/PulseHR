@@ -880,6 +880,231 @@ console.log('\nSelf-service billing (docs/11-subscription-model.md §8)');
 }
 
 /* ---------------------------------------------------------------------- */
+console.log('\nGap closure — functions the report claimed that were not yet built (docs/18)');
+
+const dhakaToday = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Dhaka' }).format(new Date());
+const shiftDays = (date, n) => {
+  const d = new Date(`${date}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+};
+async function waitForJob(jobId, token) {
+  for (let i = 0; i < 50; i++) {
+    const j = await call(`/jobs/${jobId}`, { token });
+    if (j.body?.state === 'DONE' || j.body?.state === 'FAILED') return j.body;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  return null;
+}
+const runTag = Date.now().toString(36).slice(-5);
+
+// F2.3 — departments
+const newDept = await call('/departments', {
+  method: 'POST',
+  token: hrA.accessToken,
+  body: { name: `Quality ${runTag}`, officeStartTime: '08:30' },
+});
+expect('GAP-03', 'F2.3', 'HR creates a department with its own office start time', newDept.status === 201, `got ${newDept.status}`);
+{
+  const dup = await call('/departments', { method: 'POST', token: hrA.accessToken, body: { name: `quality ${runTag}` } });
+  expect('GAP-03', 'F2.3', 'A duplicate department name is refused', dup.status === 409, `got ${dup.status}`);
+  const asMgr = await call('/departments', { method: 'POST', token: mgr.accessToken, body: { name: `X ${runTag}` } });
+  expect('GAP-03', 'F2.3', 'A MANAGER cannot create departments', asMgr.status === 403, `got ${asMgr.status}`);
+  const upd = await call(`/departments/${newDept.body?.id}`, { method: 'POST', token: hrA.accessToken, body: { officeStartTime: '09:15' } });
+  const listed = (await call('/departments', { token: hrA.accessToken })).body ?? [];
+  const row = listed.find((d) => d.id === newDept.body?.id);
+  expect('GAP-03', 'F2.3', 'HR changes a department office start time', upd.status === 200 && row?.officeStartTime === '09:15', `got ${upd.status} ${row?.officeStartTime}`);
+}
+
+// F1.1 / F2.1 — add an employee with a login
+const newEmail = `new.joiner.${runTag}@meridian.test`;
+const hireDate = shiftDays(dhakaToday, -10);
+const created = await call('/employees', {
+  method: 'POST',
+  token: hrA.accessToken,
+  body: {
+    employeeCode: `NEW-${runTag}`,
+    fullName: 'Nabila Rahman',
+    designation: 'Quality Analyst',
+    departmentId: newDept.body?.id ?? null,
+    managerId: mgr.user.employeeId,
+    hireDate,
+    gender: 'F',
+    salary: { basic: 30000, houseRent: 15000, medical: 1500, conveyance: 1500, food: 1000, providentFundPct: 10 },
+    account: { email: newEmail, role: 'EMPLOYEE', temporaryPassword: 'Welcome123' },
+  },
+});
+expect('GAP-01', 'F1.1/F2.1', 'HR adds an employee with a login', created.status === 201 && !!created.body?.id, `got ${created.status} ${JSON.stringify(created.body)}`);
+const newId = created.body?.id;
+const newLogin = await call('/auth/login', { method: 'POST', body: { email: newEmail, password: 'Welcome123' } });
+expect('GAP-01', 'F1.1', 'The new employee can sign in with the temporary password', newLogin.status === 200, `got ${newLogin.status}`);
+const newToken = newLogin.body?.accessToken;
+{
+  const me = await call('/me', { token: newToken });
+  expect('GAP-01', 'F2.1', 'Casual and sick leave are granted on joining', (me.body?.balances?.CASUAL ?? 0) > 0 && (me.body?.balances?.SICK ?? 0) > 0, JSON.stringify(me.body?.balances));
+  const dupCode = await call('/employees', { method: 'POST', token: hrA.accessToken, body: { employeeCode: `NEW-${runTag}`, fullName: 'Dup', designation: 'X', hireDate, salary: { basic: 1000 } } });
+  expect('GAP-01', 'F2.1', 'A duplicate employee code is refused', dupCode.status === 409, `got ${dupCode.status}`);
+  const dupEmail = await call('/employees', { method: 'POST', token: hrA.accessToken, body: { employeeCode: `DUP-${runTag}`, fullName: 'Dup', designation: 'X', hireDate, salary: { basic: 1000 }, account: { email: 'farhana.akter@meridian.test', temporaryPassword: 'Welcome123' } } });
+  expect('GAP-01', 'F1.1', 'An email that already has a login is refused', dupEmail.status === 409, `got ${dupEmail.status}`);
+  const asEmp = await call('/employees', { method: 'POST', token: emp.accessToken, body: { employeeCode: 'X', fullName: 'X Y', designation: 'X', hireDate, salary: { basic: 1 } } });
+  expect('GAP-01', 'F1.3', 'An EMPLOYEE cannot add employees', asEmp.status === 403, `got ${asEmp.status}`);
+}
+
+// F2.2 — HR edits employment data
+{
+  const edit = await call(`/employees/${newId}/employment`, { method: 'POST', token: hrA.accessToken, body: { designation: 'Senior Quality Analyst', managerId: null } });
+  expect('GAP-02', 'F2.2', 'HR edits designation and manager', edit.status === 200 && edit.body?.designation === 'Senior Quality Analyst', `got ${edit.status}`);
+  expect('GAP-02', 'F9 F6', 'A manager change is stamped for the attrition scorecard', edit.body?.manager_changed_at === dhakaToday, `got ${edit.body?.manager_changed_at}`);
+  const self = await call(`/employees/${newId}/employment`, { method: 'POST', token: hrA.accessToken, body: { managerId: newId } });
+  expect('GAP-02', 'F2.2', 'An employee cannot be made their own manager', self.status === 400, `got ${self.status}`);
+  const cross = await call(`/employees/${newId}/employment`, { method: 'POST', token: hrB.accessToken, body: { designation: 'Hacked' } });
+  expect('GAP-02', 'NFR-14', "Another tenant's HR cannot edit this employee", cross.status === 404, `got ${cross.status}`);
+}
+
+// F5.1 — salary structures
+{
+  const future = shiftDays(dhakaToday, 20);
+  const add = await call(`/employees/${newId}/salary`, { method: 'POST', token: hrA.accessToken, body: { effectiveFrom: future, basic: 33000, houseRent: 16500 } });
+  expect('GAP-04', 'F5.1', 'HR adds a new effective-dated salary structure', add.status === 201, `got ${add.status} ${JSON.stringify(add.body)}`);
+  const again = await call(`/employees/${newId}/salary`, { method: 'POST', token: hrA.accessToken, body: { effectiveFrom: future, basic: 34000 } });
+  expect('GAP-04', 'F5.1', 'Two structures cannot start on the same date', again.status === 409, `got ${again.status}`);
+  const beforeHire = await call(`/employees/${newId}/salary`, { method: 'POST', token: hrA.accessToken, body: { effectiveFrom: shiftDays(hireDate, -5), basic: 34000 } });
+  expect('GAP-04', 'F5.1', 'A structure cannot start before the hire date', beforeHire.status === 409, `got ${beforeHire.status}`);
+  const list = await call(`/employees/${newId}/salary`, { token: hrA.accessToken });
+  expect('GAP-04', 'F5.1 P0-8', 'The old structure is kept, not overwritten', list.body?.length === 2 && list.body[1].basic === 3300000, JSON.stringify(list.body?.map((s) => s.basic)));
+  // July 2026 is the period this script pays out in its payroll section above.
+  const issuedMonth = await call(`/employees/${emp.user.employeeId}/salary`, { method: 'POST', token: hrA.accessToken, body: { effectiveFrom: '2026-07-01', basic: 99999 } });
+  expect('GAP-04', 'F5.4', 'A structure cannot start in a month whose payroll is already issued', issuedMonth.status === 409, `got ${issuedMonth.status}`);
+  const asEmp = await call(`/employees/${newId}/salary`, { token: emp.accessToken });
+  expect('GAP-04', 'F1.3', 'An EMPLOYEE cannot read salary structures', asEmp.status === 403, `got ${asEmp.status}`);
+}
+
+// Leave cancellation — compensating ledger entry
+{
+  const start = shiftDays(dhakaToday, 30);
+  const before = (await call('/me', { token: newToken })).body?.balances?.CASUAL;
+  const applied = await call('/leave/requests', { method: 'POST', token: newToken, body: { leaveType: 'CASUAL', startDate: start, endDate: start, reason: 'Family event' } });
+  const leaveId = applied.body?.id;
+  await call(`/leave/requests/${leaveId}/decision`, { method: 'POST', token: hrA.accessToken, body: { decision: 'APPROVE' } });
+  const afterApprove = (await call('/me', { token: newToken })).body?.balances?.CASUAL;
+  const cancelOther = await call(`/leave/requests/${leaveId}/cancel`, { method: 'POST', token: emp.accessToken });
+  expect('GAP-06', 'F4', "An employee cannot cancel someone else's leave", cancelOther.status === 403, `got ${cancelOther.status}`);
+  const cancel = await call(`/leave/requests/${leaveId}/cancel`, { method: 'POST', token: newToken });
+  const afterCancel = (await call('/me', { token: newToken })).body?.balances?.CASUAL;
+  expect('GAP-06', 'F4 P0-7', 'Cancelling approved leave gives the days back through the ledger', cancel.status === 200 && afterApprove === before - 1 && afterCancel === before, `status ${cancel.status}, balances ${before} → ${afterApprove} → ${afterCancel}`);
+  const again = await call(`/leave/requests/${leaveId}/cancel`, { method: 'POST', token: newToken });
+  expect('GAP-06', 'F4', 'A cancelled request cannot be cancelled again', again.status === 409, `got ${again.status}`);
+}
+
+// F3.3 — absence marking: the new joiner has worked 10 days with no check-ins
+{
+  const run = await call('/attendance/absence-runs', { method: 'POST', token: hrA.accessToken });
+  const job = await waitForJob(run.body?.jobId, hrA.accessToken);
+  const grid = await call(`/attendance/grid?from=${hireDate}&to=${shiftDays(dhakaToday, -1)}`, { token: hrA.accessToken });
+  const mine = (grid.body ?? []).filter((r) => r.employee_id === newId && r.status === 'ABSENT');
+  expect('GAP-10', 'F3.3', 'Working days with no check-in and no leave are marked absent', job?.state === 'DONE' && mine.length > 0, `job ${job?.state}, absent rows ${mine.length}`);
+  const weekend = mine.filter((r) => [5, 6].includes(new Date(`${r.work_date}T00:00:00Z`).getUTCDay()));
+  expect('GAP-10', 'F3.3 P0-9', 'Fridays and Saturdays are never marked absent', weekend.length === 0, `got ${weekend.length}`);
+  const asEmp = await call('/attendance/absence-runs', { method: 'POST', token: emp.accessToken });
+  expect('GAP-10', 'F1.3', 'An EMPLOYEE cannot trigger absence marking', asEmp.status === 403, `got ${asEmp.status}`);
+}
+
+// F1.5 — deactivation cuts access immediately
+{
+  const seatsBefore = (await call('/subscription', { token: hrA.accessToken })).body?.seats?.seatsUsed;
+  const sep = await call(`/employees/${newId}/separate`, { method: 'POST', token: hrA.accessToken, body: { status: 'RESIGNED', separationDate: dhakaToday, separationType: 'VOLUNTARY' } });
+  expect('GAP-05', 'F1.5', 'HR records a resignation', sep.status === 200, `got ${sep.status}`);
+  const stillIn = await call('/me', { token: newToken });
+  expect('GAP-05', 'F1.5 C4', "The leaver's existing access token stops working immediately", stillIn.status === 401, `got ${stillIn.status}`);
+  const relogin = await call('/auth/login', { method: 'POST', body: { email: newEmail, password: 'Welcome123' } });
+  expect('GAP-05', 'F1.5', 'The leaver can no longer sign in', relogin.status === 401, `got ${relogin.status}`);
+  const refresh = await call('/auth/refresh', { method: 'POST', body: { refreshToken: newLogin.body?.refreshToken } });
+  expect('GAP-05', 'F1.5', "The leaver's refresh token is revoked", refresh.status === 401, `got ${refresh.status}`);
+  const seatsAfter = (await call('/subscription', { token: hrA.accessToken })).body?.seats?.seatsUsed;
+  expect('GAP-05', 'F1.5', 'The seat is released', seatsAfter === seatsBefore - 1, `${seatsBefore} → ${seatsAfter}`);
+  const twice = await call(`/employees/${newId}/separate`, { method: 'POST', token: hrA.accessToken, body: { status: 'RESIGNED', separationDate: dhakaToday, separationType: 'VOLUNTARY' } });
+  expect('GAP-05', 'F1.5', 'An employee who has already left cannot be separated again', twice.status === 409, `got ${twice.status}`);
+  const record = await call(`/employees/${newId}`, { token: hrA.accessToken });
+  expect('GAP-05', 'F1.5', 'The record is kept, marked RESIGNED', record.body?.employment_status === 'RESIGNED', `got ${record.body?.employment_status}`);
+}
+
+// F9.1 — the OKR engagement feature is live
+{
+  const top = (await call('/attrition/at-risk?limit=20', { token: hrA.accessToken })).body ?? [];
+  let maxOkr = 0;
+  for (const s of top) {
+    const detail = await call(`/attrition/scores/${s.id}`, { token: hrA.accessToken });
+    const okr = (detail.body?.contributions ?? []).find((c) => c.feature_key === 'okr_engagement_drop');
+    maxOkr = Math.max(maxOkr, okr?.points ?? 0);
+  }
+  expect('GAP-08', 'F9.1', 'OKR engagement drop contributes to at least one score (no longer hard-coded to 0)', maxOkr > 0, `max points ${maxOkr}`);
+}
+
+// F9.5 — department-level risk
+{
+  const depts = await call('/attrition/departments', { token: hrA.accessToken });
+  const rows = depts.body ?? [];
+  expect('GAP-11', 'F9.5', 'HR sees average risk per department', depts.status === 200 && rows.length > 0 && rows.every((r) => typeof r.average_score === 'number'), `got ${depts.status}`);
+  expect('GAP-11', 'F9.5 §9', 'The department view carries no names or individual scores', rows.every((r) => !('full_name' in r) && !('employee_id' in r)), JSON.stringify(Object.keys(rows[0] ?? {})));
+  const asMgr = await call('/attrition/departments', { token: mgr.accessToken });
+  expect('GAP-11', 'F9.5 §9', 'A MANAGER is refused the department risk view', asMgr.status === 403, `got ${asMgr.status}`);
+}
+
+// Spec §9 — request your own score, contest it, HR reviews
+{
+  const mine = await call('/me/attrition-score', { token: emp.accessToken });
+  expect('GAP-07', '§9', 'An employee can request their own score with its contributions', mine.status === 200 && (mine.body?.contributions?.length ?? 0) === 8, `got ${mine.status}`);
+  const scoreId = mine.body?.score?.id;
+  const short = await call('/me/attrition-score/contest', { method: 'POST', token: emp.accessToken, body: { scoreId, note: 'no' } });
+  expect('GAP-07', '§9', 'A contest needs a reason', short.status === 400, `got ${short.status}`);
+  const otherId = ((await call('/attrition/at-risk?limit=20', { token: hrA.accessToken })).body ?? []).find((s) => s.employee_id !== emp.user.employeeId)?.id;
+  const others = await call('/me/attrition-score/contest', { method: 'POST', token: emp.accessToken, body: { scoreId: otherId, note: 'This is not my score but I will try anyway' } });
+  expect('GAP-07', '§9', "An employee cannot contest someone else's score", others.status === 404, `got ${others.status}`);
+  const contest = await call('/me/attrition-score/contest', { method: 'POST', token: emp.accessToken, body: { scoreId, note: 'My recent lateness was a road closure on my route, now resolved.' } });
+  expect('GAP-07', '§9', 'An employee contests their score', contest.status === 200, `got ${contest.status}`);
+  const again = await call('/me/attrition-score/contest', { method: 'POST', token: emp.accessToken, body: { scoreId, note: 'Contesting the same score twice' } });
+  expect('GAP-07', '§9', 'The same score cannot be contested twice', again.status === 409, `got ${again.status}`);
+  const queue = await call('/attrition/contests', { token: hrA.accessToken });
+  expect('GAP-07', '§9', 'HR sees the contest in the review queue', (queue.body ?? []).some((c) => c.id === scoreId && !c.contest_outcome), `got ${queue.status}`);
+  const review = await call(`/attrition/scores/${scoreId}/contest-review`, { method: 'POST', token: hrA.accessToken, body: { outcome: 'CORRECTED', note: 'Confirmed the road closure; lateness excluded from the conversation.' } });
+  expect('GAP-07', '§9', 'HR records the review outcome', review.status === 200, `got ${review.status}`);
+  const uncontested = (queue.body ?? []).length ? otherId : null;
+  const bad = await call(`/attrition/scores/${uncontested}/contest-review`, { method: 'POST', token: hrA.accessToken, body: { outcome: 'UPHELD', note: 'Nothing to review here' } });
+  expect('GAP-07', '§9', 'A score nobody contested cannot be "reviewed"', bad.status === 409, `got ${bad.status}`);
+  const mgrQueue = await call('/attrition/contests', { token: mgr.accessToken });
+  expect('GAP-07', '§9', 'A MANAGER cannot see contests', mgrQueue.status === 403, `got ${mgrQueue.status}`);
+}
+
+// Spec §9 — quarterly bias audit
+{
+  const run = await call('/attrition/bias-audit/runs', { method: 'POST', token: hrA.accessToken });
+  const job = await waitForJob(run.body?.jobId, hrA.accessToken);
+  const audit = await call('/attrition/bias-audit', { token: hrA.accessToken });
+  const dims = (audit.body?.report?.dimensions ?? []).map((d) => d.dimension).sort().join(',');
+  expect('GAP-13', '§9', 'The bias audit runs and stores a report across gender, department and tenure', job?.state === 'DONE' && dims === 'department,gender,tenure', `job ${job?.state}, dims ${dims}`);
+  const growth = await call('/attrition/bias-audit', { token: hrB.accessToken });
+  expect('GAP-13', '§9 plan', 'The bias audit is an Enterprise feature (402 on Growth)', growth.status === 402, `got ${growth.status}`);
+}
+
+// F5.5 — payroll summary by department
+{
+  const [py, pm] = [2026, 7]; // paid out by this script's payroll section above
+  const sum = await call(`/payroll/summary?year=${py}&month=${pm}`, { token: hrA.accessToken });
+  const depts = sum.body?.departments ?? [];
+  const netTotal = depts.reduce((t, d) => t + Number(d.net), 0);
+  expect('GAP-14', 'F5.5', 'HR sees payroll totals per department for a month', sum.status === 200 && depts.length > 1 && netTotal === sum.body?.total?.net, `got ${sum.status}, ${depts.length} departments`);
+  const asEmp = await call(`/payroll/summary?year=${py}&month=${pm}`, { token: emp.accessToken });
+  expect('GAP-14', 'F5.5', 'An EMPLOYEE cannot see the payroll summary', asEmp.status === 403, `got ${asEmp.status}`);
+}
+
+// F8.4 — notice search
+{
+  const found = await call('/notices?q=eid', { token: emp.accessToken });
+  const none = await call('/notices?q=zzzz-no-such-notice', { token: emp.accessToken });
+  expect('GAP-15', 'F8.4', 'Searching notices returns only matches', found.status === 200 && found.body.length > 0 && found.body.every((n) => /eid/i.test(`${n.title} ${n.body}`)) && none.body.length === 0, `found ${found.body?.length}, none ${none.body?.length}`);
+}
+
+/* ---------------------------------------------------------------------- */
 console.log(`\n${checks} checks, ${findings.length} defects found\n`);
 for (const f of findings) {
   console.log(`${f.id}  (${f.story})  ${f.description}`);

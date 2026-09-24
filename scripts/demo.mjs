@@ -32,6 +32,7 @@ const prevYear = month === 1 ? year - 1 : year;
 const prevMonth = month === 1 ? 12 : month - 1;
 
 step(['run', 'seed']);
+step(['run', 'job:absences']);
 step(['run', 'job:score']);
 step(['run', 'job:payroll', '--', String(prevYear), String(prevMonth)]);
 

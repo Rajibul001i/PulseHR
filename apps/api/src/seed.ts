@@ -260,6 +260,9 @@ async function seedOrganisation(opts: {
 
     // --- Attendance history
     await seedAttendance(orgId, employeeId, profile, random);
+
+    // --- OKR history, so the scorecard's engagement feature (F8) has something to read.
+    await seedOkr(orgId, employeeId, userId, profile);
   }
 
   // Noticeboard
@@ -282,6 +285,60 @@ async function seedOrganisation(opts: {
   console.log(
     `[seed] ${opts.name} (${opts.tier}) — ${employeeIds.length} employees, login hr@${opts.emailDomain} / Passw0rd!`,
   );
+}
+
+const quarterOf = (date: string): string => `${date.slice(0, 4)}-Q${Math.floor((Number(date.slice(5, 7)) - 1) / 3) + 1}`;
+
+/**
+ * One self-set objective per employee with two key results, plus a history of progress
+ * updates across the last 180 days. Employees who are drifting away update their goals less
+ * often in the most recent 90 days than in the 90 before -- the pattern okr_engagement_drop
+ * measures. Steady employees keep a steady rhythm.
+ */
+async function seedOkr(orgId: string, employeeId: string, userId: string, profile: Profile): Promise<void> {
+  const objectiveId = uuid();
+  await run(
+    `INSERT INTO objective (id, organisation_id, employee_id, set_by, quarter, title, weight_pct, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, 100, ?)`,
+    objectiveId,
+    orgId,
+    employeeId,
+    userId,
+    quarterOf(TODAY),
+    `Deliver the ${profile.department.toLowerCase()} priorities for the quarter`,
+    nowIso(),
+  );
+  const krIds = [uuid(), uuid()];
+  for (const [i, title] of ['Complete planned deliverables', 'Close review actions on time'].entries()) {
+    await run(
+      `INSERT INTO key_result (id, objective_id, title, target_value, current_value, unit, updated_at, sort_order)
+       VALUES (?, ?, ?, 10, ?, 'items', ?, ?)`,
+      krIds[i],
+      objectiveId,
+      title,
+      profile.risk === 'leaving' ? 2 : profile.risk === 'drifting' ? 4 : 6,
+      nowIso(),
+      i,
+    );
+  }
+  const [previous, recent] = profile.risk === 'leaving' ? [6, 1] : profile.risk === 'drifting' ? [5, 3] : [4, 5];
+  const updates = [
+    ...Array.from({ length: previous }, (_, i) => 100 + Math.round((i * 75) / previous)),
+    ...Array.from({ length: recent }, (_, i) => 10 + Math.round((i * 75) / Math.max(1, recent))),
+  ];
+  for (const [i, daysAgo] of updates.entries()) {
+    await run(
+      `INSERT INTO key_result_update (id, organisation_id, key_result_id, employee_id, updated_by, new_value, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      uuid(),
+      orgId,
+      krIds[i % 2],
+      employeeId,
+      userId,
+      i + 1,
+      `${addDays(TODAY, -daysAgo)}T06:00:00.000Z`,
+    );
+  }
 }
 
 async function seedAttendance(
@@ -389,6 +446,7 @@ if (process.env.DATABASE_URL) {
 // Idempotent: wipe and re-seed so the demo is reproducible. Order matters -- a table must
 // be cleared before anything it references (FK enforcement is on, db.ts).
 for (const table of [
+  'key_result_update', 'bias_audit_report', // added with migration 013
   'key_result', 'candidate_stage_event', 'candidate_evaluation', 'notice_department', 'notice_read',
   'attrition_contribution', 'attrition_score', 'payslip_line', 'payslip', 'leave_ledger',
   'leave_request', 'attendance', 'salary_structure', 'notice', 'audit_log', 'holiday',

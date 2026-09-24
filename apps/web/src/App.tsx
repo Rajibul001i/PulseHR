@@ -15,6 +15,7 @@ import { Attendance } from './pages/Attendance';
 import { Leave } from './pages/Leave';
 import { Payslips } from './pages/Payslips';
 import { AtRisk } from './pages/AtRisk';
+import { People } from './pages/People';
 import { Plan } from './pages/Plan';
 import { OKR } from './pages/OKR';
 import { Recruitment } from './pages/Recruitment';
@@ -136,6 +137,7 @@ interface NavItem {
 const NAV: NavItem[] = [
   { to: '/', label: 'Dashboard' },
   { to: '/profile', label: 'My profile' },
+  { to: '/people', label: 'People', roles: ['HR_ADMIN'] },
   { to: '/attendance', label: 'Attendance', feature: 'attendance' },
   { to: '/leave', label: 'Leave', feature: 'leave' },
   { to: '/payslips', label: 'Payslips', feature: 'payroll' },
@@ -282,6 +284,7 @@ function Shell() {
         <Routes>
           <Route path="/" element={<Dashboard role={role} subscription={sub} />} />
           <Route path="/profile" element={<Profile role={role} />} />
+          <Route path="/people" element={role === 'HR_ADMIN' ? <People /> : <Profile role={role} />} />
           <Route path="/attendance" element={<Attendance role={role} />} />
           <Route path="/leave" element={<Leave role={role} />} />
           <Route path="/payslips" element={<Payslips role={role} />} />

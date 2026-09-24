@@ -56,6 +56,71 @@ jobs:
       - name: End-to-end smoke test
         run: node scripts/smoke.mjs
 
+      - name: Regression checks (every SQA defect and closed gap)
+        run: node scripts/bughunt.mjs | tee bughunt.log && grep -q ' 0 defects found' bughunt.log
+
+      - name: Database refuses overlapping approved leave
+        run: node scripts/verify-leave-overlap.mjs
+
       - name: Dependency audit
         run: npm audit --audit-level=high
         continue-on-error: true
+
+  # ADR-009: PostgreSQL is the production database, so the same end-to-end suites run against
+  # a real PostgreSQL 16 as well as the zero-install SQLite path above.
+  postgres:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: pulsehr
+          POSTGRES_PASSWORD: pulsehr
+          POSTGRES_DB: pulsehr
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U pulsehr"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://pulsehr:pulsehr@localhost:5432/pulsehr
+      PULSEHR_SCHEDULER: 'off'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Seed database (applies all PostgreSQL migrations)
+        run: npm run seed
+
+      - name: Run worker jobs
+        run: |
+          npm run job:absences
+          npm run job:score
+          npm run job:payroll -- 2026 7
+
+      - name: Start API
+        run: npm run start -w @pulsehr/api &
+
+      - name: Wait for API
+        run: npx wait-on http://localhost:4000/api/employees --timeout 30000 || sleep 5
+
+      - name: End-to-end smoke test
+        run: node scripts/smoke.mjs
+
+      - name: Regression checks
+        run: node scripts/bughunt.mjs | tee bughunt.log && grep -q ' 0 defects found' bughunt.log
+
+      - name: Database refuses overlapping approved leave
+        run: node scripts/verify-leave-overlap.mjs

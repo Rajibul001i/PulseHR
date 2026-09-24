@@ -11,6 +11,7 @@ import {
   type UpgradeRequired,
 } from '../api';
 import { StatSkeleton, TableSkeleton, EmptyState, UpgradePrompt } from '../components/Feedback';
+import { RiskInsights } from '../components/RiskInsights';
 import { useToast } from '../components/Toast';
 
 export function Dashboard({
@@ -212,7 +213,8 @@ export function Dashboard({
                           <td>{r.department_name ?? '—'}</td>
                           <td className="num">{r.score}</td>
                           <td>
-                            <span className={`badge ${r.band}`}>{r.band}</span>
+                            <span className={`badge ${r.band}`}>{r.band}</span>{' '}
+                            {r.contested ? <span className="badge NEUTRAL">Contested</span> : null}
                           </td>
                           <td className="num">
                             <Link to={`/at-risk/${r.id}`}>Why? →</Link>
@@ -223,6 +225,7 @@ export function Dashboard({
                   </table>
                 </div>
               )}
+              {atRisk !== null && atRisk.length > 0 && <RiskInsights />}
             </>
           )}
         </>

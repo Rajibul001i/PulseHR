@@ -12,7 +12,7 @@
 
 import { randomUUID } from 'node:crypto';
 
-export type JobType = 'PAYROLL_RUN' | 'ATTRITION_SCORING';
+export type JobType = 'PAYROLL_RUN' | 'ATTRITION_SCORING' | 'MARK_ABSENCES' | 'BIAS_AUDIT';
 export type JobState = 'QUEUED' | 'RUNNING' | 'DONE' | 'FAILED';
 
 export interface Job {

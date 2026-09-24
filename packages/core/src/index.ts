@@ -6,3 +6,5 @@ export * from './leave.js';
 export * from './attrition.js';
 export * from './subscription.js';
 export * from './billing.js';
+export * from './fairness.js';
+export * from './attendance.js';

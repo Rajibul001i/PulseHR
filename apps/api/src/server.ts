@@ -37,6 +37,8 @@ import {
   consumeRefreshToken,
   hashPassword,
   issueAccessToken,
+  loadDeactivatedUsers,
+  markDeactivated,
   issuePasswordResetToken,
   issueRefreshToken,
   requireRole,
@@ -44,16 +46,21 @@ import {
   verifyPassword,
   type Principal,
 } from './auth.js';
-import { Repo, publicVacancies, publicVacancy, publicOrganisationName, submitApplication } from './repo.js';
+import { Repo, type NewSalaryStructure, publicVacancies, publicVacancy, publicOrganisationName, submitApplication } from './repo.js';
 import { enqueue, jobStatus } from './jobs/queue.js';
 // Side-effecting imports: each module calls registerHandler() at load time. Without these,
 // PAYROLL_RUN and ATTRITION_SCORING jobs enqueue successfully and then fail immediately
 // with "No handler registered" — the queue has no other way to learn these handlers exist.
 import './jobs/runPayroll.js';
 import './jobs/scoreAll.js';
+import './jobs/markAbsences.js';
+import './jobs/biasAudit.js';
+import { startScheduler } from './jobs/scheduler.js';
 import { requireFeature, subscriptionOf } from './entitlement.js';
+import { emailConfigured, sendPasswordResetEmail } from './mailer.js';
 
 await openDb();
+await loadDeactivatedUsers();
 
 const app = express();
 app.use(cors());
@@ -156,13 +163,18 @@ app.post(
     const { email } = z.object({ email: z.string().email() }).parse(req.body);
     const user = await one('SELECT id, is_active FROM app_user WHERE email = ?', email);
 
-    // Prototype shortcut: no email provider is configured anywhere in this project (no
-    // SMTP/API-key secret exists), so the token a real deployment would email is returned
-    // directly here instead of being sent. A production build would hand this token to an
-    // email provider (e.g. Resend, SES) and never put it in an HTTP response.
+    // With SMTP configured (mailer.ts) the link is emailed and the token never appears in a
+    // response. Without it -- the free demo deployment -- the token is returned instead, so
+    // the flow can still be walked through end to end.
     let demoResetToken: string | undefined;
     if (user && user.is_active) {
-      demoResetToken = await issuePasswordResetToken(String(user.id));
+      const token = await issuePasswordResetToken(String(user.id));
+      if (emailConfigured()) {
+        const appUrl = process.env.PULSEHR_APP_URL ?? `${req.protocol}://${req.get('host')}`;
+        await sendPasswordResetEmail(email, token, appUrl);
+      } else {
+        demoResetToken = token;
+      }
     }
 
     // Same response whether or not the email is registered — do not confirm which
@@ -222,6 +234,251 @@ app.get(
       return;
     }
     res.json({ ...emp, balances: await repo.balances(String(emp.id)) });
+  }),
+);
+
+/* ------------------------- HR administration -------------------------------
+ * F1.1 / F2.1 add an employee (optionally with a login), F2.2 edit employment data,
+ * F5.1 salary structures, F1.5 separation, F2.3 departments. HR_ADMIN only.
+ */
+
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+const takaToPaisa = (taka: number): number => Math.round(taka * 100);
+
+// Salary inputs arrive in taka (what HR types) and are stored as integer paisa (P1-2).
+const salaryInput = z.object({
+  basic: z.number().positive(),
+  houseRent: z.number().min(0).default(0),
+  medical: z.number().min(0).default(0),
+  conveyance: z.number().min(0).default(0),
+  food: z.number().min(0).default(0),
+  dearness: z.number().min(0).default(0),
+  providentFundPct: z.number().min(0).max(100).default(0),
+});
+const toStructure = (s: z.infer<typeof salaryInput>): NewSalaryStructure => ({
+  basic: takaToPaisa(s.basic),
+  houseRent: takaToPaisa(s.houseRent),
+  medical: takaToPaisa(s.medical),
+  conveyance: takaToPaisa(s.conveyance),
+  food: takaToPaisa(s.food),
+  dearness: takaToPaisa(s.dearness),
+  providentFundPct: s.providentFundPct,
+});
+
+async function activeEmployeeInOrg(repo: Repo, id: string | null): Promise<boolean> {
+  if (!id) return true;
+  const e = await repo.getEmployee(id);
+  return !!e && e.employment_status === 'ACTIVE';
+}
+
+app.post(
+  '/api/employees',
+  requireRole('HR_ADMIN'),
+  handler(async (req, res) => {
+    const body = z
+      .object({
+        employeeCode: z.string().trim().min(1).max(20),
+        fullName: z.string().trim().min(2).max(120),
+        designation: z.string().trim().min(1).max(80),
+        departmentId: z.string().nullable().default(null),
+        managerId: z.string().nullable().default(null),
+        hireDate: z.string().regex(DATE_RE),
+        gender: z.enum(['M', 'F']).nullable().default(null),
+        salary: salaryInput,
+        account: z
+          .object({
+            email: z.string().trim().toLowerCase().email(),
+            role: z.enum(['EMPLOYEE', 'MANAGER', 'HR_ADMIN']).default('EMPLOYEE'),
+            temporaryPassword: z.string().min(8).max(100),
+          })
+          .nullable()
+          .default(null),
+      })
+      .parse(req.body);
+    const repo = repoOf(req);
+
+    const seats = checkSeats(await subscriptionOf(req.principal!.organisationId));
+    if (!seats.withinLimit) {
+      res.status(402).json({
+        error: `All ${seats.seatLimit} seats on your plan are in use. Upgrade to add more employees.`,
+        code: 'SEAT_LIMIT',
+      });
+      return;
+    }
+    if (await repo.employeeCodeInUse(body.employeeCode)) {
+      res.status(409).json({ error: `Employee code ${body.employeeCode} is already in use.` });
+      return;
+    }
+    if (body.account && (await repo.emailInUse(body.account.email))) {
+      res.status(409).json({ error: `${body.account.email} already has a PulseHR login.` });
+      return;
+    }
+    if (body.departmentId && !(await repo.departmentExists(body.departmentId))) {
+      res.status(400).json({ error: 'Unknown department.' });
+      return;
+    }
+    if (!(await activeEmployeeInOrg(repo, body.managerId))) {
+      res.status(400).json({ error: 'The manager must be an active employee of this organisation.' });
+      return;
+    }
+
+    const employeeId = await repo.createEmployee({
+      employeeCode: body.employeeCode,
+      fullName: body.fullName,
+      designation: body.designation,
+      departmentId: body.departmentId,
+      managerId: body.managerId,
+      hireDate: body.hireDate,
+      gender: body.gender,
+      salary: toStructure(body.salary),
+      account: body.account
+        ? {
+            email: body.account.email,
+            role: body.account.role,
+            passwordHash: await hashPassword(body.account.temporaryPassword),
+          }
+        : null,
+    });
+    res.status(201).json({ id: employeeId });
+  }),
+);
+
+// F2.2 — HR edits employment data. Salary is deliberately not editable here: it changes only
+// through a new effective-dated structure (below).
+app.post(
+  '/api/employees/:id/employment',
+  requireRole('HR_ADMIN'),
+  handler(async (req, res) => {
+    const changes = z
+      .object({
+        designation: z.string().trim().min(1).max(80).optional(),
+        employeeCode: z.string().trim().min(1).max(20).optional(),
+        departmentId: z.string().nullable().optional(),
+        managerId: z.string().nullable().optional(),
+        gender: z.enum(['M', 'F']).nullable().optional(),
+      })
+      .parse(req.body);
+    const repo = repoOf(req);
+    const id = req.params.id!;
+    if (!(await repo.getEmployee(id))) {
+      res.status(404).json({ error: 'Not found' });
+      return;
+    }
+    if (changes.employeeCode && (await repo.employeeCodeInUse(changes.employeeCode, id))) {
+      res.status(409).json({ error: `Employee code ${changes.employeeCode} is already in use.` });
+      return;
+    }
+    if (changes.departmentId && !(await repo.departmentExists(changes.departmentId))) {
+      res.status(400).json({ error: 'Unknown department.' });
+      return;
+    }
+    if (changes.managerId === id) {
+      res.status(400).json({ error: 'An employee cannot be their own manager.' });
+      return;
+    }
+    if (changes.managerId !== undefined && !(await activeEmployeeInOrg(repo, changes.managerId))) {
+      res.status(400).json({ error: 'The manager must be an active employee of this organisation.' });
+      return;
+    }
+    await repo.updateEmployment(id, changes);
+    res.json(await repo.getEmployee(id));
+  }),
+);
+
+app.get(
+  '/api/employees/:id/salary',
+  requireRole('HR_ADMIN'),
+  handler(async (req, res) => {
+    const repo = repoOf(req);
+    if (!(await repo.getEmployee(req.params.id!))) {
+      res.status(404).json({ error: 'Not found' });
+      return;
+    }
+    res.json(await repo.salaryStructures(req.params.id!));
+  }),
+);
+
+app.post(
+  '/api/employees/:id/salary',
+  requireRole('HR_ADMIN'),
+  handler(async (req, res) => {
+    const body = salaryInput.extend({ effectiveFrom: z.string().regex(DATE_RE) }).parse(req.body);
+    const result = await repoOf(req).addSalaryStructure(req.params.id!, body.effectiveFrom, toStructure(body));
+    if (!result.ok) {
+      res.status(result.error === 'NOT_FOUND' ? 404 : 409).json({ error: result.error === 'NOT_FOUND' ? 'Not found' : result.error });
+      return;
+    }
+    res.status(201).json({ id: result.id });
+  }),
+);
+
+// F1.5 — separation. The record and its history stay; the login is disabled and every
+// session is cut immediately (auth.ts markDeactivated).
+app.post(
+  '/api/employees/:id/separate',
+  requireRole('HR_ADMIN'),
+  handler(async (req, res) => {
+    const body = z
+      .object({
+        status: z.enum(['RESIGNED', 'TERMINATED']),
+        separationDate: z.string().regex(DATE_RE),
+        separationType: z.enum(['VOLUNTARY', 'INVOLUNTARY']),
+      })
+      .parse(req.body);
+    const repo = repoOf(req);
+    const id = req.params.id!;
+    const emp = await repo.getEmployee(id);
+    if (!emp) {
+      res.status(404).json({ error: 'Not found' });
+      return;
+    }
+    if (emp.employment_status !== 'ACTIVE') {
+      res.status(409).json({ error: 'This employee has already left.' });
+      return;
+    }
+    if (emp.user_id && String(emp.user_id) === req.principal!.userId) {
+      res.status(400).json({ error: 'You cannot deactivate your own account.' });
+      return;
+    }
+    const userId = await repo.separateEmployee(id, body);
+    let sessionsRevoked = 0;
+    if (userId) {
+      markDeactivated(userId);
+      sessionsRevoked = await revokeAllSessions(userId);
+    }
+    res.json({ ok: true, sessionsRevoked });
+  }),
+);
+
+app.post(
+  '/api/departments',
+  requireRole('HR_ADMIN'),
+  handler(async (req, res) => {
+    const { name, officeStartTime } = z
+      .object({ name: z.string().trim().min(1).max(60), officeStartTime: z.string().regex(TIME_RE).default('09:00') })
+      .parse(req.body);
+    const repo = repoOf(req);
+    if ((await repo.departments()).some((d) => String(d.name).toLowerCase() === name.toLowerCase())) {
+      res.status(409).json({ error: `A department called ${name} already exists.` });
+      return;
+    }
+    res.status(201).json({ id: await repo.createDepartment(name, officeStartTime) });
+  }),
+);
+
+app.post(
+  '/api/departments/:id',
+  requireRole('HR_ADMIN'),
+  handler(async (req, res) => {
+    const changes = z
+      .object({ name: z.string().trim().min(1).max(60).optional(), officeStartTime: z.string().regex(TIME_RE).optional() })
+      .parse(req.body);
+    if (!(await repoOf(req).updateDepartment(req.params.id!, changes))) {
+      res.status(404).json({ error: 'Not found' });
+      return;
+    }
+    res.json({ ok: true });
   }),
 );
 
@@ -486,6 +743,48 @@ app.get(
     }
     const status = typeof req.query.status === 'string' ? req.query.status : undefined;
     res.json(await repo.leaveRequests(status ? { status } : {}));
+  }),
+);
+
+// Leave cancellation. The request is never deleted: it becomes CANCELLED, and if it had been
+// approved a compensating ledger entry gives the days back (P0-7 — nothing is deleted from
+// the ledger). Only leave that hasn't started can be cancelled; once it has, HR corrects it.
+app.post(
+  '/api/leave/requests/:id/cancel',
+  handler(async (req, res) => {
+    const p = req.principal!;
+    const repo = repoOf(req);
+    const requestId = req.params.id!;
+    const today = businessDate(new Date());
+
+    const result = await transaction(async () => {
+      const request = await repo.getLeaveRequest(requestId);
+      if (!request) return { status: 404 as const, body: { error: 'Not found' } };
+      if (p.role !== 'HR_ADMIN' && request.employeeId !== p.employeeId) {
+        return { status: 403 as const, body: { error: 'You can only cancel your own leave.' } };
+      }
+      if (request.status !== 'PENDING' && request.status !== 'APPROVED') {
+        return { status: 409 as const, body: { error: `A ${request.status.toLowerCase()} request cannot be cancelled.` } };
+      }
+      if (request.startDate <= today) {
+        return { status: 409 as const, body: { error: 'This leave has already started. Ask HR to correct it.' } };
+      }
+      await repo.setLeaveStatus(requestId, 'CANCELLED', p.userId);
+      if (request.status === 'APPROVED' && request.leaveType !== 'LWP') {
+        await repo.appendLedger(
+          request.employeeId,
+          request.leaveType,
+          request.days,
+          request.startDate,
+          `Cancelled leave ${request.startDate}..${request.endDate}`,
+          requestId,
+        );
+      }
+      await repo.clearPendingNotificationsFor('leave_request', requestId);
+      await repo.audit('LEAVE_CANCELLED', 'leave_request', requestId, { previousStatus: request.status });
+      return { status: 200 as const, body: { status: 'CANCELLED' } };
+    });
+    res.status(result.status).json(result.body);
   }),
 );
 
@@ -814,6 +1113,29 @@ app.get(
   }),
 );
 
+// F5.5 — department-wise salary expenditure for a month, for management reporting.
+app.get(
+  '/api/payroll/summary',
+  requireRole('HR_ADMIN'),
+  requireFeature('payroll'),
+  handler(async (req, res) => {
+    const { year, month } = z
+      .object({ year: z.coerce.number().int().min(2000).max(2100), month: z.coerce.number().int().min(1).max(12) })
+      .parse(req.query);
+    const departments = await repoOf(req).payrollSummary(year, month);
+    const total = departments.reduce<{ headcount: number; gross: number; deductions: number; net: number }>(
+      (t, d) => ({
+        headcount: t.headcount + Number(d.headcount),
+        gross: t.gross + Number(d.gross),
+        deductions: t.deductions + Number(d.deductions),
+        net: t.net + Number(d.net),
+      }),
+      { headcount: 0, gross: 0, deductions: 0, net: 0 },
+    );
+    res.json({ year, month, departments, total });
+  }),
+);
+
 /** ADR-004: enqueue, do not execute. Returns 202 with a job id. */
 app.post(
   '/api/payroll/runs',
@@ -989,6 +1311,140 @@ app.get(
         'Advisory for retention outreach only. Using this score in a termination, ' +
         'promotion, appraisal or pay decision is a prohibited use.',
     });
+  }),
+);
+
+// F9.5 — department-level risk: counts and averages only, never names or individual scores.
+app.get(
+  '/api/attrition/departments',
+  requireRole('HR_ADMIN'),
+  requireFeature('attrition_full'),
+  handler(async (req, res) => {
+    res.json(await repoOf(req).departmentRisk());
+  }),
+);
+
+// Spec §9: scores an employee has contested, for HR to review.
+app.get(
+  '/api/attrition/contests',
+  requireRole('HR_ADMIN'),
+  requireFeature('attrition_full'),
+  handler(async (req, res) => {
+    res.json(await repoOf(req).listContests());
+  }),
+);
+
+app.post(
+  '/api/attrition/scores/:id/contest-review',
+  requireRole('HR_ADMIN'),
+  requireFeature('attrition_full'),
+  handler(async (req, res) => {
+    const { outcome, note } = z
+      .object({ outcome: z.enum(['UPHELD', 'CORRECTED']), note: z.string().trim().min(5).max(1000) })
+      .parse(req.body);
+    const result = await repoOf(req).reviewContest(req.params.id!, outcome, note);
+    if (result === 'NOT_FOUND') {
+      res.status(404).json({ error: 'Not found' });
+      return;
+    }
+    if (result === 'NOT_CONTESTED') {
+      res.status(409).json({ error: 'This score has not been contested.' });
+      return;
+    }
+    res.json({ ok: true });
+  }),
+);
+
+// Spec §9: an employee may request their own score, with its contributions, and contest it.
+app.get(
+  '/api/me/attrition-score',
+  requireFeature('attrition_full'),
+  handler(async (req, res) => {
+    const p = req.principal!;
+    if (!p.employeeId) {
+      res.status(404).json({ error: 'This account has no employee record.' });
+      return;
+    }
+    const found = await repoOf(req).ownLatestScore(p.employeeId);
+    if (!found) {
+      res.status(404).json({ error: 'You have not been scored yet.' });
+      return;
+    }
+    res.json({
+      ...found,
+      responsibleUse:
+        'This indicator is advisory and used only to decide whether HR offers a retention conversation. ' +
+        'It is never used for termination, promotion, appraisal or pay decisions.',
+    });
+  }),
+);
+
+app.post(
+  '/api/me/attrition-score/contest',
+  requireFeature('attrition_full'),
+  handler(async (req, res) => {
+    const p = req.principal!;
+    const { scoreId, note } = z
+      .object({ scoreId: z.string().min(1), note: z.string().trim().min(10).max(1000) })
+      .parse(req.body);
+    if (!p.employeeId) {
+      res.status(404).json({ error: 'Not found' });
+      return;
+    }
+    const result = await repoOf(req).contestScore(scoreId, p.employeeId, note);
+    if (result === 'NOT_FOUND') {
+      res.status(404).json({ error: 'Not found' });
+      return;
+    }
+    if (result === 'ALREADY') {
+      res.status(409).json({ error: 'You have already contested this score.' });
+      return;
+    }
+    res.json({ ok: true });
+  }),
+);
+
+// Spec §9: quarterly bias audit. The scheduler runs it on the first day of each quarter;
+// HR can also run it on demand.
+app.get(
+  '/api/attrition/bias-audit',
+  requireRole('HR_ADMIN'),
+  requireFeature('bias_audit'),
+  handler(async (req, res) => {
+    const latest = await repoOf(req).latestBiasAudit();
+    if (!latest) {
+      res.json(null);
+      return;
+    }
+    res.json({
+      id: latest.id,
+      runOn: latest.run_on,
+      scoresOn: latest.scores_on,
+      flagged: Number(latest.flagged) === 1,
+      report: JSON.parse(String(latest.report)),
+    });
+  }),
+);
+
+app.post(
+  '/api/attrition/bias-audit/runs',
+  requireRole('HR_ADMIN'),
+  requireFeature('bias_audit'),
+  handler(async (req, res) => {
+    const p = req.principal!;
+    const jobId = enqueue('BIAS_AUDIT', { organisationId: p.organisationId, userId: p.userId });
+    res.status(202).json({ jobId, status: 'QUEUED' });
+  }),
+);
+
+// F3.3 — absence marking runs nightly (jobs/scheduler.ts); HR can also run it now.
+app.post(
+  '/api/attendance/absence-runs',
+  requireRole('HR_ADMIN'),
+  handler(async (req, res) => {
+    const p = req.principal!;
+    const jobId = enqueue('MARK_ABSENCES', { organisationId: p.organisationId, userId: p.userId });
+    res.status(202).json({ jobId, status: 'QUEUED' });
   }),
 );
 
@@ -1470,7 +1926,8 @@ app.get(
     const p = req.principal!;
     const isPrivileged = p.role === 'HR_ADMIN' || p.role === 'MANAGER';
     const repo = repoOf(req);
-    const notices = await repo.notices(p.employeeId ?? null, isPrivileged);
+    const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+    const notices = await repo.notices(p.employeeId ?? null, isPrivileged, q || undefined);
     const readIds = p.employeeId ? await repo.readNoticeIdsFor(p.employeeId) : new Set<string>();
     res.json(notices.map((n) => ({ ...n, read: readIds.has(String(n.id)) })));
   }),
@@ -1593,3 +2050,4 @@ const PORT = Number(process.env.PORT ?? 4000);
 app.listen(PORT, () => {
   console.log(`PulseHR API listening on http://localhost:${PORT}`);
 });
+startScheduler();

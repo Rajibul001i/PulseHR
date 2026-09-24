@@ -1,5 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
+import { useSelector } from 'react-redux';
 import { get, post, type LeaveRequestDto } from '../api';
+import type { RootState } from '../store';
 import { EmptyState, TableSkeleton } from '../components/Feedback';
 import { useToast } from '../components/Toast';
 
@@ -17,6 +19,14 @@ export function Leave({ role }: { role: string }) {
   });
 
   const canDecide = role === 'MANAGER' || role === 'HR_ADMIN';
+  const myEmployeeId = useSelector((s: RootState) => s.auth.employeeId);
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Dhaka' }).format(new Date());
+
+  // Leave that hasn't started can be cancelled by the employee, or by HR for anyone.
+  const canCancel = (r: LeaveRequestDto) =>
+    (r.status === 'PENDING' || r.status === 'APPROVED') &&
+    r.startDate > today &&
+    (role === 'HR_ADMIN' || r.employeeId === myEmployeeId);
 
   async function load() {
     try {
@@ -78,6 +88,18 @@ export function Leave({ role }: { role: string }) {
     } catch (err) {
       // A 409 here is the concurrency guard doing its job (P0-7) — roll the row back.
       setRequests(snapshot);
+      toast.error((err as Error).message);
+    }
+  }
+
+  async function cancel(r: LeaveRequestDto) {
+    const what = r.status === 'APPROVED' ? 'Cancel this approved leave? The days go back to the balance.' : 'Withdraw this request?';
+    if (!window.confirm(what)) return;
+    try {
+      await post(`/leave/requests/${r.id}/cancel`);
+      toast.success(r.status === 'APPROVED' ? `Leave cancelled. ${r.days} day${r.days === 1 ? '' : 's'} returned.` : 'Request withdrawn.');
+      await load();
+    } catch (err) {
       toast.error((err as Error).message);
     }
   }
@@ -171,7 +193,7 @@ export function Leave({ role }: { role: string }) {
               <th className="num">Days</th>
               <th>Reason</th>
               <th>Status</th>
-              {canDecide && <th />}
+              <th />
             </tr>
           </thead>
           <tbody>
@@ -185,20 +207,23 @@ export function Leave({ role }: { role: string }) {
                 <td>
                   <span className={`badge ${r.status}`}>{r.status}</span>
                 </td>
-                {canDecide && (
-                  <td className="num">
-                    {r.status === 'PENDING' && (
-                      <>
-                        <button className="sm" onClick={() => decide(r.id, 'APPROVE')}>
-                          Approve
-                        </button>{' '}
-                        <button className="sm danger" onClick={() => decide(r.id, 'REJECT')}>
-                          Reject
-                        </button>
-                      </>
-                    )}
-                  </td>
-                )}
+                <td className="num">
+                  {canDecide && r.status === 'PENDING' && (
+                    <>
+                      <button className="sm" onClick={() => decide(r.id, 'APPROVE')}>
+                        Approve
+                      </button>{' '}
+                      <button className="sm danger" onClick={() => decide(r.id, 'REJECT')}>
+                        Reject
+                      </button>{' '}
+                    </>
+                  )}
+                  {canCancel(r) && (
+                    <button className="sm" onClick={() => cancel(r)}>
+                      {r.status === 'APPROVED' ? 'Cancel' : 'Withdraw'}
+                    </button>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>

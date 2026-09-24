@@ -19,6 +19,7 @@
  */
 
 import {
+  annualGrant,
   balanceOf,
   businessDate,
   previewPlanChange,
@@ -31,6 +32,17 @@ import {
   type Tier,
 } from '@pulsehr/core';
 import { all, nowIso, one, run, transaction, uuid, type Row } from './db.js';
+
+/** Money in paisa, as everywhere else (P1-2). */
+export interface NewSalaryStructure {
+  basic: number;
+  houseRent: number;
+  medical: number;
+  conveyance: number;
+  food: number;
+  dearness: number;
+  providentFundPct: number;
+}
 
 export class Repo {
   constructor(
@@ -191,7 +203,7 @@ export class Repo {
   async departments(): Promise<Row[]> {
     return all(
       `SELECT d.id, d.name,
-              d.office_start_time AS officeStartTime,
+              d.office_start_time AS "officeStartTime",
               (SELECT COUNT(*) FROM employee e WHERE e.department_id = d.id) AS headcount
          FROM department d
         WHERE d.organisation_id = ?
@@ -604,8 +616,10 @@ export class Repo {
   /* ----------------------------- attrition ------------------------------ */
 
   async saveScore(result: AttritionResult): Promise<void> {
+    // Re-scoring the same day replaces the score, but an employee's contest of it must survive.
     const existing = await one(
-      'SELECT id FROM attrition_score WHERE employee_id = ? AND scored_on = ?',
+      `SELECT id, contested, contest_note, contested_at, contest_outcome, contest_review_note, contest_reviewed_at
+         FROM attrition_score WHERE employee_id = ? AND scored_on = ?`,
       result.employeeId,
       result.asOf,
     );
@@ -627,6 +641,18 @@ export class Repo {
       result.engineVersion,
       nowIso(),
     );
+    if (existing && Number(existing.contested) === 1) {
+      await run(
+        `UPDATE attrition_score SET contested = 1, contest_note = ?, contested_at = ?, contest_outcome = ?,
+                contest_review_note = ?, contest_reviewed_at = ? WHERE id = ?`,
+        existing.contest_note ?? null,
+        existing.contested_at ?? null,
+        existing.contest_outcome ?? null,
+        existing.contest_review_note ?? null,
+        existing.contest_reviewed_at ?? null,
+        id,
+      );
+    }
     for (const c of result.contributions) {
       await run(
         `INSERT INTO attrition_contribution (id, score_id, feature_key, label, normalised, weight, points)
@@ -783,6 +809,27 @@ export class Repo {
       nowIso(),
       id,
     );
+    // Every update is kept, not only the latest: the attrition scorecard's OKR engagement
+    // feature compares how often an employee updates their key results across two windows.
+    const owner = await one(
+      `SELECT o.employee_id FROM key_result kr JOIN objective o ON o.id = kr.objective_id
+        WHERE kr.id = ? AND o.organisation_id = ?`,
+      id,
+      this.orgId,
+    );
+    if (owner) {
+      await run(
+        `INSERT INTO key_result_update (id, organisation_id, key_result_id, employee_id, updated_by, new_value, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        uuid(),
+        this.orgId,
+        id,
+        owner.employee_id,
+        this.actorUserId,
+        currentValue,
+        nowIso(),
+      );
+    }
     await this.audit('UPDATE_KEY_RESULT', 'key_result', id, { currentValue });
   }
 
@@ -1033,14 +1080,22 @@ export class Repo {
 
   /* ------------------------------ notices ------------------------------- */
 
-  async notices(employeeId: string | null, isPrivileged: boolean): Promise<Row[]> {
+  async notices(employeeId: string | null, isPrivileged: boolean, q?: string): Promise<Row[]> {
+    // F8.4: the archive is searchable. With a search term the 50-row window is lifted, so an
+    // old notice is still findable; without one, the board shows the latest 50.
+    const like = q ? `%${q.toLowerCase()}%` : null;
+    const search = like ? `AND (LOWER(n.title) LIKE ? OR LOWER(n.body) LIKE ?)` : '';
+    const searchParams = like ? [like, like] : [];
+    const limit = like ? 500 : 50;
     // F8.1: audience targeting. HR/managers see every notice (they need to know what exists
     // to manage it); an employee sees company-wide notices plus ones targeted at their own
     // department. is_urgent DESC first so a pinned notice always sits above routine ones (F8.2).
     if (isPrivileged) {
       return all(
-        `SELECT * FROM notice WHERE organisation_id = ? ORDER BY is_urgent DESC, published_at DESC LIMIT 50`,
+        `SELECT n.* FROM notice n WHERE n.organisation_id = ? ${search}
+          ORDER BY n.is_urgent DESC, n.published_at DESC LIMIT ${limit}`,
         this.orgId,
+        ...searchParams,
       );
     }
     const departmentId = employeeId
@@ -1053,10 +1108,12 @@ export class Repo {
              OR ( n.audience_type = 'DEPARTMENTS' AND EXISTS (
                     SELECT 1 FROM notice_department nd
                      WHERE nd.notice_id = n.id AND nd.department_id = ? ) ) )
+          ${search}
         ORDER BY n.is_urgent DESC, n.published_at DESC
-        LIMIT 50`,
+        LIMIT ${limit}`,
       this.orgId,
       departmentId ?? '__none__',
+      ...searchParams,
     );
   }
 
@@ -1244,6 +1301,392 @@ export class Repo {
 
   async listInvoices(): Promise<Row[]> {
     return all('SELECT * FROM invoice WHERE organisation_id = ? ORDER BY issued_at DESC', this.orgId);
+  }
+
+  /* ------------------------ HR administration ---------------------------
+   * F1.1 / F2.1 create, F2.2 edit, F2.3 departments, F5.1 salary, F1.5 separation.
+   * Every write is audited. Salary structures are never edited, only superseded (P0-8).
+   */
+
+  /** Logins are looked up by email alone (server.ts /auth/login), so an email must be unique
+   *  across every organisation, not just this one. */
+  async emailInUse(email: string): Promise<boolean> {
+    return !!(await one('SELECT id FROM app_user WHERE LOWER(email) = LOWER(?)', email));
+  }
+
+  async employeeCodeInUse(code: string, exceptEmployeeId?: string): Promise<boolean> {
+    return !!(await one(
+      'SELECT id FROM employee WHERE organisation_id = ? AND employee_code = ? AND id <> ?',
+      this.orgId,
+      code,
+      exceptEmployeeId ?? '',
+    ));
+  }
+
+  async departmentExists(id: string): Promise<boolean> {
+    return !!(await one('SELECT id FROM department WHERE id = ? AND organisation_id = ?', id, this.orgId));
+  }
+
+  async createEmployee(p: {
+    employeeCode: string;
+    fullName: string;
+    designation: string;
+    departmentId: string | null;
+    managerId: string | null;
+    hireDate: string;
+    gender: string | null;
+    salary: NewSalaryStructure;
+    account: { email: string; role: 'EMPLOYEE' | 'MANAGER' | 'HR_ADMIN'; passwordHash: string } | null;
+  }): Promise<string> {
+    const employeeId = uuid();
+    const userId = p.account ? uuid() : null;
+    await transaction(async () => {
+      if (p.account && userId) {
+        await run(
+          `INSERT INTO app_user (id, organisation_id, email, password_hash, role, is_active, created_at)
+           VALUES (?, ?, ?, ?, ?, 1, ?)`,
+          userId,
+          this.orgId,
+          p.account.email,
+          p.account.passwordHash,
+          p.account.role,
+          nowIso(),
+        );
+      }
+      await run(
+        `INSERT INTO employee (id, organisation_id, user_id, department_id, manager_id, employee_code,
+                               full_name, designation, gender, hire_date, employment_status, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?)`,
+        employeeId,
+        this.orgId,
+        userId,
+        p.departmentId,
+        p.managerId,
+        p.employeeCode,
+        p.fullName,
+        p.designation,
+        p.gender,
+        p.hireDate,
+        nowIso(),
+      );
+      await this.insertSalaryStructure(employeeId, p.hireDate, p.salary);
+
+      // §115/§116: casual and sick leave are granted for the year, pro-rated for a joiner.
+      // Earned leave (§117) starts at zero and accrues from days actually worked.
+      const [hireYear, hireMonth] = p.hireDate.split('-').map(Number) as [number, number];
+      const thisYear = Number(businessDate(new Date()).slice(0, 4));
+      const monthsInYear = hireYear < thisYear ? 12 : 12 - hireMonth + 1;
+      const grantDate = hireYear < thisYear ? `${thisYear}-01-01` : p.hireDate;
+      for (const type of ['CASUAL', 'SICK'] as const) {
+        const days = annualGrant(type, monthsInYear);
+        if (days > 0) await this.appendLedger(employeeId, type, days, grantDate, 'Annual statutory grant (pro-rated)');
+      }
+    });
+    await this.audit('CREATE_EMPLOYEE', 'employee', employeeId, {
+      employeeCode: p.employeeCode,
+      withLogin: !!p.account,
+      role: p.account?.role ?? null,
+    });
+    return employeeId;
+  }
+
+  /** F2.2 — HR edits employment data. A manager change stamps manager_changed_at, which the
+   *  attrition scorecard reads (F6 recent manager change). */
+  async updateEmployment(
+    employeeId: string,
+    changes: { designation?: string; departmentId?: string | null; managerId?: string | null; employeeCode?: string; gender?: string | null },
+  ): Promise<void> {
+    const before = await this.getEmployee(employeeId);
+    if (!before) return;
+    const managerChanged = changes.managerId !== undefined && (changes.managerId ?? null) !== (before.manager_id ?? null);
+    await run(
+      `UPDATE employee
+          SET designation   = COALESCE(?, designation),
+              employee_code = COALESCE(?, employee_code),
+              department_id = CASE WHEN ? = 1 THEN ? ELSE department_id END,
+              manager_id    = CASE WHEN ? = 1 THEN ? ELSE manager_id END,
+              gender        = CASE WHEN ? = 1 THEN ? ELSE gender END,
+              manager_changed_at = CASE WHEN ? = 1 THEN ? ELSE manager_changed_at END
+        WHERE id = ? AND organisation_id = ?`,
+      changes.designation ?? null,
+      changes.employeeCode ?? null,
+      changes.departmentId !== undefined ? 1 : 0,
+      changes.departmentId ?? null,
+      changes.managerId !== undefined ? 1 : 0,
+      changes.managerId ?? null,
+      changes.gender !== undefined ? 1 : 0,
+      changes.gender ?? null,
+      managerChanged ? 1 : 0,
+      businessDate(new Date()),
+      employeeId,
+      this.orgId,
+    );
+    await this.audit('UPDATE_EMPLOYMENT', 'employee', employeeId, changes);
+  }
+
+  private async insertSalaryStructure(employeeId: string, effectiveFrom: string, s: NewSalaryStructure): Promise<string> {
+    const id = uuid();
+    await run(
+      `INSERT INTO salary_structure (id, organisation_id, employee_id, effective_from, basic, house_rent,
+                                     medical, conveyance, food, dearness, provident_fund_pct, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      id,
+      this.orgId,
+      employeeId,
+      effectiveFrom,
+      s.basic,
+      s.houseRent,
+      s.medical,
+      s.conveyance,
+      s.food,
+      s.dearness,
+      s.providentFundPct,
+      nowIso(),
+    );
+    return id;
+  }
+
+  /** F5.1 — a new structure supersedes the old one from its effective date. The old row is
+   *  kept, so a past month's payroll still reproduces exactly. */
+  async addSalaryStructure(
+    employeeId: string,
+    effectiveFrom: string,
+    s: NewSalaryStructure,
+  ): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
+    const emp = await this.getEmployee(employeeId);
+    if (!emp) return { ok: false, error: 'NOT_FOUND' };
+    if (effectiveFrom < String(emp.hire_date)) return { ok: false, error: 'The effective date is before the hire date.' };
+    const clash = await one(
+      'SELECT id FROM salary_structure WHERE employee_id = ? AND effective_from = ?',
+      employeeId,
+      effectiveFrom,
+    );
+    if (clash) return { ok: false, error: 'A salary structure already starts on that date.' };
+    const issued = await one(
+      `SELECT MAX(period_year * 100 + period_month) AS last FROM payslip WHERE employee_id = ?`,
+      employeeId,
+    );
+    const [y, m] = effectiveFrom.split('-').map(Number) as [number, number];
+    if (issued?.last && y * 100 + m <= Number(issued.last)) {
+      return { ok: false, error: 'Payroll has already been issued for that month. Choose a later effective date.' };
+    }
+    const id = await this.insertSalaryStructure(employeeId, effectiveFrom, s);
+    await this.audit('ADD_SALARY_STRUCTURE', 'salary_structure', id, { employeeId, effectiveFrom, basic: s.basic });
+    return { ok: true, id };
+  }
+
+  /** F1.5 — separation. The record stays (history, payroll, the attrition label); access
+   *  goes. Session revocation is the caller's job, since it lives in auth.ts. */
+  async separateEmployee(
+    employeeId: string,
+    p: { status: 'RESIGNED' | 'TERMINATED'; separationDate: string; separationType: 'VOLUNTARY' | 'INVOLUNTARY' },
+  ): Promise<string | null> {
+    const emp = await this.getEmployee(employeeId);
+    if (!emp) return null;
+    await transaction(async () => {
+      await run(
+        `UPDATE employee SET employment_status = ?, separation_date = ?, separation_type = ?
+          WHERE id = ? AND organisation_id = ?`,
+        p.status,
+        p.separationDate,
+        p.separationType,
+        employeeId,
+        this.orgId,
+      );
+      if (emp.user_id) await run('UPDATE app_user SET is_active = 0 WHERE id = ?', emp.user_id);
+    });
+    await this.audit('SEPARATE_EMPLOYEE', 'employee', employeeId, p);
+    return emp.user_id ? String(emp.user_id) : '';
+  }
+
+  async createDepartment(name: string, officeStartTime: string): Promise<string> {
+    const id = uuid();
+    await run(
+      'INSERT INTO department (id, organisation_id, name, office_start_time) VALUES (?, ?, ?, ?)',
+      id,
+      this.orgId,
+      name,
+      officeStartTime,
+    );
+    await this.audit('CREATE_DEPARTMENT', 'department', id, { name, officeStartTime });
+    return id;
+  }
+
+  async updateDepartment(id: string, changes: { name?: string; officeStartTime?: string }): Promise<boolean> {
+    if (!(await this.departmentExists(id))) return false;
+    await run(
+      `UPDATE department SET name = COALESCE(?, name), office_start_time = COALESCE(?, office_start_time)
+        WHERE id = ? AND organisation_id = ?`,
+      changes.name ?? null,
+      changes.officeStartTime ?? null,
+      id,
+      this.orgId,
+    );
+    await this.audit('UPDATE_DEPARTMENT', 'department', id, changes);
+    return true;
+  }
+
+  /* ----------------------------- reports -------------------------------- */
+
+  /** F5.5 — department-wise salary expenditure for one month (ordinary payslips only). */
+  async payrollSummary(year: number, month: number): Promise<Row[]> {
+    return all(
+      `SELECT COALESCE(d.name, 'No department') AS department,
+              COUNT(*) AS headcount,
+              SUM(p.gross) AS gross,
+              SUM(p.total_deductions) AS deductions,
+              SUM(p.net_pay) AS net
+         FROM payslip p
+         JOIN employee e ON e.id = p.employee_id
+         LEFT JOIN department d ON d.id = e.department_id
+        WHERE p.organisation_id = ? AND p.period_year = ? AND p.period_month = ?
+          AND p.adjusts_payslip_id IS NULL
+        GROUP BY COALESCE(d.name, 'No department')
+        ORDER BY department`,
+      this.orgId,
+      year,
+      month,
+    );
+  }
+
+  /** Latest score per active employee, with what the bias audit groups by. */
+  async latestScoresForAudit(): Promise<Row[]> {
+    return all(
+      `SELECT s.score, s.band, s.scored_on, e.gender, e.hire_date, d.name AS department_name
+         FROM attrition_score s
+         JOIN employee e ON e.id = s.employee_id
+         LEFT JOIN department d ON d.id = e.department_id
+        WHERE s.organisation_id = ? AND e.employment_status = 'ACTIVE'
+          AND s.scored_on = (SELECT MAX(s2.scored_on) FROM attrition_score s2 WHERE s2.employee_id = s.employee_id)`,
+      this.orgId,
+    );
+  }
+
+  /** F9.5 — aggregate risk per department. No names, no individual scores. */
+  async departmentRisk(): Promise<Row[]> {
+    await this.audit('VIEW_DEPARTMENT_RISK', 'attrition_score', null);
+    return all(
+      `SELECT COALESCE(d.name, 'No department') AS department,
+              COUNT(*) AS scored,
+              CAST(ROUND(AVG(s.score), 1) AS REAL) AS average_score,
+              SUM(CASE WHEN s.band = 'LOW' THEN 1 ELSE 0 END) AS low,
+              SUM(CASE WHEN s.band = 'MODERATE' THEN 1 ELSE 0 END) AS moderate,
+              SUM(CASE WHEN s.band = 'ELEVATED' THEN 1 ELSE 0 END) AS elevated,
+              SUM(CASE WHEN s.band = 'HIGH' THEN 1 ELSE 0 END) AS high
+         FROM attrition_score s
+         JOIN employee e ON e.id = s.employee_id
+         LEFT JOIN department d ON d.id = e.department_id
+        WHERE s.organisation_id = ? AND e.employment_status = 'ACTIVE'
+          AND s.scored_on = (SELECT MAX(s2.scored_on) FROM attrition_score s2 WHERE s2.employee_id = s.employee_id)
+        GROUP BY COALESCE(d.name, 'No department')
+        ORDER BY average_score DESC`,
+      this.orgId,
+    );
+  }
+
+  async saveBiasAudit(report: unknown, flagged: boolean, scoresOn: string | null): Promise<string> {
+    const id = uuid();
+    await run(
+      `INSERT INTO bias_audit_report (id, organisation_id, run_on, scores_on, flagged, report, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      id,
+      this.orgId,
+      businessDate(new Date()),
+      scoresOn,
+      flagged ? 1 : 0,
+      JSON.stringify(report),
+      nowIso(),
+    );
+    await this.audit('BIAS_AUDIT', 'bias_audit_report', id, { flagged });
+    return id;
+  }
+
+  async latestBiasAudit(): Promise<Row | undefined> {
+    return one(
+      'SELECT * FROM bias_audit_report WHERE organisation_id = ? ORDER BY created_at DESC LIMIT 1',
+      this.orgId,
+    );
+  }
+
+  /* ---------------------- score request & contest -----------------------
+   * Spec §9: an employee may request their own score and its contributions, and contest it.
+   * HR reviews every contest. Nothing here exposes anyone else's score.
+   */
+
+  async ownLatestScore(employeeId: string): Promise<{ score: Row; contributions: Row[] } | undefined> {
+    const s = await one(
+      `SELECT * FROM attrition_score WHERE organisation_id = ? AND employee_id = ?
+        ORDER BY scored_on DESC LIMIT 1`,
+      this.orgId,
+      employeeId,
+    );
+    if (!s) return undefined;
+    await this.audit('VIEW_OWN_ATTRITION_SCORE', 'attrition_score', String(s.id));
+    return {
+      score: s,
+      contributions: await all('SELECT * FROM attrition_contribution WHERE score_id = ? ORDER BY points DESC', s.id),
+    };
+  }
+
+  async contestScore(scoreId: string, employeeId: string, note: string): Promise<'OK' | 'NOT_FOUND' | 'ALREADY'> {
+    const s = await one(
+      'SELECT id, contested FROM attrition_score WHERE id = ? AND organisation_id = ? AND employee_id = ?',
+      scoreId,
+      this.orgId,
+      employeeId,
+    );
+    if (!s) return 'NOT_FOUND';
+    if (Number(s.contested) === 1) return 'ALREADY';
+    await run(
+      'UPDATE attrition_score SET contested = 1, contest_note = ?, contested_at = ? WHERE id = ?',
+      note,
+      nowIso(),
+      scoreId,
+    );
+    await this.audit('CONTEST_ATTRITION_SCORE', 'attrition_score', scoreId, { note });
+    return 'OK';
+  }
+
+  async reviewContest(
+    scoreId: string,
+    outcome: 'UPHELD' | 'CORRECTED',
+    note: string,
+  ): Promise<'OK' | 'NOT_FOUND' | 'NOT_CONTESTED'> {
+    const s = await one('SELECT id, contested FROM attrition_score WHERE id = ? AND organisation_id = ?', scoreId, this.orgId);
+    if (!s) return 'NOT_FOUND';
+    if (Number(s.contested) !== 1) return 'NOT_CONTESTED';
+    await run(
+      `UPDATE attrition_score SET contest_outcome = ?, contest_review_note = ?, contest_reviewed_at = ?
+        WHERE id = ?`,
+      outcome,
+      note,
+      nowIso(),
+      scoreId,
+    );
+    await this.audit('REVIEW_SCORE_CONTEST', 'attrition_score', scoreId, { outcome, note });
+    return 'OK';
+  }
+
+  async listContests(): Promise<Row[]> {
+    await this.audit('VIEW_SCORE_CONTESTS', 'attrition_score', null);
+    return all(
+      `SELECT s.id, s.score, s.band, s.scored_on, s.contest_note, s.contested_at, s.contest_outcome,
+              s.contest_review_note, s.contest_reviewed_at, e.full_name, d.name AS department_name
+         FROM attrition_score s
+         JOIN employee e ON e.id = s.employee_id
+         LEFT JOIN department d ON d.id = e.department_id
+        WHERE s.organisation_id = ? AND s.contested = 1
+        ORDER BY (s.contest_reviewed_at IS NULL) DESC, s.contested_at DESC`,
+      this.orgId,
+    );
+  }
+
+  async hrAdminUserIds(): Promise<string[]> {
+    const rows = await all(
+      "SELECT id FROM app_user WHERE organisation_id = ? AND role = 'HR_ADMIN' AND is_active = 1",
+      this.orgId,
+    );
+    return rows.map((r) => String(r.id));
   }
 }
 

@@ -57,16 +57,20 @@ packages/core/src/leave.ts           Accrual (§117 1-per-18) + ledger balance
 packages/core/src/attrition.ts       Attrition scorecard + evaluation
 packages/core/src/subscription.ts    Entitlement matrix + seat accounting
 packages/core/src/billing.ts         Plan-change proration and invoices
+packages/core/src/attendance.ts      Absence marking rule (F3.3)
+packages/core/src/fairness.ts        Quarterly bias audit (spec §9)
 packages/core/src/index.ts           Barrel export
 ```
 
-**Tests — 107 passing:**
+**Tests — 122 passing:**
 ```
 packages/core/test/payroll.test.ts        26 tests
 packages/core/test/leave.test.ts          25 tests
 packages/core/test/attrition.test.ts      22 tests
 packages/core/test/subscription.test.ts   16 tests
 packages/core/test/dates.test.ts          13 tests
+packages/core/test/fairness.test.ts        8 tests
+packages/core/test/attendance.test.ts      7 tests
 packages/core/test/billing.test.ts         5 tests
 ```
 
@@ -85,9 +89,13 @@ apps/api/src/seed.ts                 3 tenants, deterministic demo data
 apps/api/src/jobs/queue.ts           Job queue interface
 apps/api/src/jobs/runPayroll.ts      Payroll worker
 apps/api/src/jobs/scoreAll.ts        Attrition scoring batch
+apps/api/src/jobs/markAbsences.ts    Absence marking (F3.3)
+apps/api/src/jobs/biasAudit.ts       Quarterly bias audit
+apps/api/src/jobs/scheduler.ts       Nightly 02:00 Asia/Dhaka schedule
+apps/api/src/mailer.ts               Password-reset email over SMTP (optional)
 
-apps/api/migrations/                 12 forward-only SQLite migrations (001–012)
-apps/api/migrations-postgres/        The same 12 migrations for PostgreSQL
+apps/api/migrations/                 13 forward-only SQLite migrations (001–013)
+apps/api/migrations-postgres/        The same 13 migrations for PostgreSQL
 ```
 
 ### Frontend — `apps/web/`
@@ -100,11 +108,12 @@ apps/web/src/subscription.ts         Client entitlement mirror
 apps/web/src/styles.css              Design tokens, light + dark, responsive
 
 apps/web/src/components/             Toast, Feedback (skeletons, empty states),
-                                     NotificationBell, Logo
+                                     NotificationBell, Logo, RiskInsights,
+                                     MyRiskIndicator
 
-apps/web/src/pages/                  13 screens: Login, ResetPassword, Dashboard,
-                                     Profile, Attendance, Leave, Payslips, Notices,
-                                     AtRisk, Plan, OKR, Recruitment, Careers
+apps/web/src/pages/                  14 screens: Login, ResetPassword, Dashboard,
+                                     Profile, People, Attendance, Leave, Payslips,
+                                     Notices, AtRisk, Plan, OKR, Recruitment, Careers
 ```
 
 ---
@@ -116,6 +125,7 @@ scripts/smoke.mjs                     30 end-to-end checks against a live API
 scripts/bughunt.mjs                   Regression checks for every SQA defect found
 scripts/loadtest.mjs                  150-user load and stress test
 scripts/verify-payslip-uniqueness.mjs Proves the DB constraint actually holds
+scripts/verify-leave-overlap.mjs      Proves the DB refuses overlapping approved leave
 scripts/demo.mjs                      Seed, score, run payroll, serve web + API
 tools/fix_deck_numbering.py           Repairs the deck's slide-number footers
 ```
@@ -140,11 +150,13 @@ FILE-MAP.md                This file
 
 ```bash
 npm install                      # first time only
-npm test                         # 107 unit tests
+npm test                         # 122 unit tests
 npm run demo                     # everything on http://localhost:4000
 npm run seed                     # 3 tenants of demo data
 npm run job:score                # attrition scoring batch
 npm run job:payroll -- 2026 8    # payroll run for a month
+npm run job:absences             # mark absences
+npm run job:bias-audit           # quarterly bias audit
 npm run dev:api                  # API on :4000 (hot reload)
 npm run dev:web                  # UI on :5173 (hot reload)
 node scripts/smoke.mjs           # end-to-end checks

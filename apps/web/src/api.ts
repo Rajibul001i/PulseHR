@@ -214,6 +214,7 @@ export interface AtRiskRow {
   score: number;
   band: RiskBand;
   scored_on: string;
+  contested?: number;
 }
 
 export interface Contribution {

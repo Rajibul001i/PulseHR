@@ -131,6 +131,26 @@ export async function buildFeatures(
   );
   const otHoursPerMonthAvg90d = Number(otRow?.total ?? 0) / 3;
 
+  // F8 — OKR engagement: the employee's own key-result updates in the last 90 days against
+  // the 90 days before. Only updates they made themselves count; a manager updating on their
+  // behalf is not the employee's engagement.
+  const okrWindow = async (from: DhakaDate, to: DhakaDate): Promise<number> => {
+    if (!employee.user_id) return 0;
+    const row = await one(
+      `SELECT COUNT(*) AS n FROM key_result_update
+        WHERE organisation_id = ? AND employee_id = ? AND updated_by = ?
+          AND created_at >= ? AND created_at < ?`,
+      orgId,
+      employeeId,
+      employee.user_id,
+      `${from}T00:00:00.000Z`,
+      `${addDays(to, 1)}T00:00:00.000Z`,
+    );
+    return Number(row?.n ?? 0);
+  };
+  const okrUpdatesThisCycle = await okrWindow(addDays(asOf, -89), asOf);
+  const okrUpdatesPrevCycle = await okrWindow(addDays(asOf, -179), addDays(asOf, -90));
+
   return {
     employeeId,
     asOf,
@@ -144,9 +164,8 @@ export async function buildFeatures(
     monthsSinceLastSalaryIncrease,
     daysSinceManagerChange,
     otHoursPerMonthAvg90d,
-    // OKR module is Increment 3; until it lands these are neutral rather than fabricated.
-    okrUpdatesThisCycle: 0,
-    okrUpdatesPrevCycle: 0,
+    okrUpdatesThisCycle,
+    okrUpdatesPrevCycle,
   };
 }
 

@@ -6,6 +6,54 @@ as a changelog.
 
 ---
 
+## Session 6 — 24 September 2026
+
+### 1. Live demo restored
+
+Render deletes free PostgreSQL databases 30 days after creation; the one created on 15 Aug
+was gone, so the API could not start. The demo now runs on one free Render web service
+using SQLite (which never expires), and the API serves the web app itself, so the service
+URL is the whole product. `npm run demo` does the same on a laptop.
+
+### 2. Report checked against the code — 16 gaps found and closed
+
+A line-by-line check of the final report and presentation against the repository found 16
+places where the report described something the code didn't do (`docs/18-gap-analysis.md`).
+All 16 are now built or, for one, a wording fix:
+
+- **People screen (HR):** employee directory with search, add employee with an optional
+  login, edit employment details, effective-dated salary structures, record a separation,
+  and departments with their office start times.
+- **Separation cuts access immediately:** the login is disabled, sessions are revoked, and the
+  current access token is refused on its next request rather than living out its 15 minutes.
+- **Leave cancellation** with a compensating ledger entry.
+- **Absence marking (F3.3)** and the **nightly 02:00 schedule (F9.2)**, which also runs the
+  quarterly bias audit.
+- **OKR engagement feature** is live: key-result updates are logged and compared across two
+  90-day windows. All eight scorecard features now contribute.
+- **Responsible use (spec §9):** employees can see their own indicator and contest it; HR
+  reviews each contest; the **quarterly bias audit** compares tenure-adjusted scores across
+  gender and department and flags gaps above 5 points.
+- **Department risk view (F9.5)**, **payroll summary by department (F5.5)**, **notice search
+  (F8.4)**, and **password-reset email** over SMTP when configured.
+- **Overlapping approved leave is refused by the database** — an exclusion constraint on
+  PostgreSQL, triggers on SQLite (`scripts/verify-leave-overlap.mjs`).
+
+Removed on request: the explain-only AI assistant.
+
+**One real defect found on PostgreSQL:** the department list returned `officestarttime`
+instead of `officeStartTime`, because PostgreSQL lower-cases unquoted aliases. On the live
+Postgres demo, every department's office start time had been missing. Fixed.
+
+### Verification
+
+Everything was run against SQLite and a real PostgreSQL 16 database, not only an in-memory
+stand-in: typecheck clean, **122 unit tests** (15 new), **30/30 smoke**, **108 regression
+checks with 0 defects** (51 new), the overlap check, and a browser walk-through of every new
+screen. CI now runs the regression suite and a PostgreSQL job on every push.
+
+---
+
 ## Session 5 — 15 August 2026
 
 ### 1. Full-app visual/UX audit — seven real defects found and fixed

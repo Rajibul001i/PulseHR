@@ -13,6 +13,93 @@ interface EmployeeSummary {
   employee_code: string;
 }
 
+interface SummaryRow {
+  department: string;
+  headcount: number;
+  gross: number;
+  deductions: number;
+  net: number;
+}
+
+/** F5.5 — salary expenditure per department for one month, for management reporting. */
+function PayrollSummary() {
+  const now = new Date();
+  const last = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const [period, setPeriod] = useState(`${last.getFullYear()}-${String(last.getMonth() + 1).padStart(2, '0')}`);
+  const [data, setData] = useState<{ departments: SummaryRow[]; total: Omit<SummaryRow, 'department'> } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const [year, month] = period.split('-').map(Number);
+    setData(null);
+    setError(null);
+    get<{ departments: SummaryRow[]; total: Omit<SummaryRow, 'department'> }>(`/payroll/summary?year=${year}&month=${month}`)
+      .then(setData)
+      .catch((err: Error) => setError(err.message));
+  }, [period]);
+
+  return (
+    <>
+      <div className="row-tight" style={{ justifyContent: 'space-between', marginTop: 26 }}>
+        <h2 style={{ margin: 0 }}>Payroll by department</h2>
+        <div className="row-tight">
+          <label htmlFor="summary-month" className="stat-note">
+            Month
+          </label>
+          <input
+            id="summary-month"
+            type="month"
+            value={period}
+            onChange={(e) => e.target.value && setPeriod(e.target.value)}
+            style={{ width: 170 }}
+          />
+        </div>
+      </div>
+      {error && <p className="error content-in">{error}</p>}
+      <div className="card table-card" style={{ marginTop: 10 }}>
+        <table>
+          <thead>
+            <tr>
+              <th>Department</th>
+              <th className="num">Payslips</th>
+              <th className="num">Gross</th>
+              <th className="num">Deductions</th>
+              <th className="num">Net pay</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data?.departments.map((d) => (
+              <tr key={d.department}>
+                <td>{d.department}</td>
+                <td className="num">{d.headcount}</td>
+                <td className="num">{formatBDT(d.gross)}</td>
+                <td className="num">{formatBDT(d.deductions)}</td>
+                <td className="num">{formatBDT(d.net)}</td>
+              </tr>
+            ))}
+            {data && data.departments.length > 0 && (
+              <tr style={{ fontWeight: 700 }}>
+                <td>Total</td>
+                <td className="num">{data.total.headcount}</td>
+                <td className="num">{formatBDT(data.total.gross)}</td>
+                <td className="num">{formatBDT(data.total.deductions)}</td>
+                <td className="num">{formatBDT(data.total.net)}</td>
+              </tr>
+            )}
+            {data && data.departments.length === 0 && (
+              <tr>
+                <td colSpan={5} className="notice">
+                  No payroll has been run for this month yet.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
+}
+
 export function Payslips({ role }: { role: string }) {
   const isHrAdmin = role === 'HR_ADMIN';
   const [list, setList] = useState<PayslipDto[]>([]);
@@ -239,6 +326,9 @@ export function Payslips({ role }: { role: string }) {
         </div>
       )}
 
+      {isHrAdmin && <PayrollSummary />}
+
+      {isHrAdmin && <h2>Payslips by employee</h2>}
       {isHrAdmin && employees.length > 0 && (
         <div className="field" style={{ maxWidth: 320, marginBottom: 14 }}>
           <label htmlFor="payslip-emp-picker">Viewing</label>

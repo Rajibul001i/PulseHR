@@ -45,9 +45,12 @@ export function Notices({ role }: { role: string }) {
   const [reportFor, setReportFor] = useState<string | null>(null);
   const [report, setReport] = useState<ReadReport | null>(null);
 
-  async function load() {
+  const [search, setSearch] = useState('');
+  const [searched, setSearched] = useState('');
+
+  async function load(q = searched) {
     try {
-      setNotices(await get<Notice[]>('/notices'));
+      setNotices(await get<Notice[]>(q ? `/notices?q=${encodeURIComponent(q)}` : '/notices'));
     } catch (err) {
       toast.error((err as Error).message);
       setNotices([]);
@@ -173,6 +176,47 @@ export function Notices({ role }: { role: string }) {
         </form>
       )}
 
+      <form
+        className="row-tight"
+        style={{ marginBottom: 14, maxWidth: 520 }}
+        role="search"
+        onSubmit={(e) => {
+          e.preventDefault();
+          setSearched(search.trim());
+          setNotices(null);
+          void load(search.trim());
+        }}
+      >
+        <label htmlFor="n-search" className="sr-only">
+          Search notices
+        </label>
+        <input
+          id="n-search"
+          type="search"
+          placeholder="Search all notices, including older ones"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          style={{ flex: 1 }}
+        />
+        <button type="submit" className="sm">
+          Search
+        </button>
+        {searched && (
+          <button
+            type="button"
+            className="sm"
+            onClick={() => {
+              setSearch('');
+              setSearched('');
+              setNotices(null);
+              void load('');
+            }}
+          >
+            Clear
+          </button>
+        )}
+      </form>
+
       {notices === null && <TableSkeleton rows={3} cols={1} />}
       {notices?.map((n, i) => (
         <div
@@ -232,8 +276,12 @@ export function Notices({ role }: { role: string }) {
       {notices?.length === 0 && (
         <EmptyState
           icon="📋"
-          title="No notices yet"
-          body="Company announcements posted by HR will appear here, newest first."
+          title={searched ? `Nothing matches "${searched}"` : 'No notices yet'}
+          body={
+            searched
+              ? 'Try another word, or clear the search to see the latest notices.'
+              : 'Company announcements posted by HR will appear here, newest first.'
+          }
         />
       )}
     </div>

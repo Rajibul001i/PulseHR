@@ -233,9 +233,10 @@ cannot quietly move.
    low-cost and benign. It would not be acceptable for any consequential decision.
 3. **Weights are opinions.** Well-sourced opinions, but priors, not findings.
 4. **Cold start.** An employee with under 90 days of data scores on partial features.
-5. **F8 is inert today.** The OKR module (F6) is Increment 3 and not yet built, so
-   `okrUpdates*` are zero for every employee — 5 of 100 points are currently unreachable.
-   Documented rather than hidden.
+5. **F8 needs OKR history.** Key-result updates are logged (`key_result_update`, migration
+   013) and F8 compares an employee's own updates in the last 90 days with the 90 before.
+   For an organisation that doesn't use OKRs yet, F8 is zero for everyone: those 5 points
+   are unreachable until there is activity to compare.
 6. **Culturally unvalidated.** Signals are drawn from HR practice plus general literature.
    Whether they hold in Bangladeshi mid-market firms is exactly what production data will
    tell us.
@@ -252,11 +253,20 @@ cannot quietly move.
 | Score visible to HR only | ✅ Enforced at route and repository |
 | Every view audited | ✅ |
 | Contributions returned with every score | ✅ Enforced — the API cannot return one without the other |
-| Employees may request and contest their score | ⬜ `contested` column exists; endpoint not built |
-| Quarterly bias audit across gender/department/tenure | ⬜ Specified, Enterprise tier, not built |
+| Employees may request and contest their score | ✅ My profile → My retention indicator; HR reviews each contest and records the outcome (`/api/me/attrition-score`, `/api/attrition/scores/:id/contest-review`) |
+| Quarterly bias audit across gender/department/tenure | ✅ Runs on the first day of each quarter and on demand; stored as a written report (`bias_audit_report`). Enterprise tier |
 
-The two unbuilt items are the **most important remaining work on this feature**. A model
-with fairness controls specified but not implemented is not yet a fair model.
+**How the bias audit decides.** Each score is compared with the mean of its tenure band
+(under 1 year, 1 to 3 years, over 3 years), and groups are compared on that tenure-adjusted
+value. A gap above 5 points between compared groups flags the dimension and requires
+re-weighting. Groups smaller than 3 people are listed but not compared. Tenure itself is
+reported but never flagged, because tenure milestones are a deliberate feature. Age band is
+not audited: no date of birth is stored. The rule is `packages/core/src/fairness.ts`, with
+8 unit tests.
+
+On the demo data the audit flags gender and department. That is expected: the seed data
+deliberately gives a handful of named employees the "about to leave" pattern, and a small
+demo company has too few people per group for those few to average out.
 
 ---
 

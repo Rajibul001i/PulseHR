@@ -2,6 +2,7 @@ import { useEffect, useState, type ChangeEvent, type FormEvent } from 'react';
 import { get, post, tokens, type Me } from '../api';
 import { useToast } from '../components/Toast';
 import { StatSkeleton, EmptyState } from '../components/Feedback';
+import { MyRiskIndicator } from '../components/MyRiskIndicator';
 
 interface EmployeeSummary {
   id: string;
@@ -226,6 +227,8 @@ export function Profile({ role }: { role: string }) {
               {busy ? 'Saving…' : 'Save changes'}
             </button>
           </form>
+
+          <MyRiskIndicator />
         </>
       )}
 
