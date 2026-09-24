@@ -15,8 +15,18 @@ import cors from 'cors';
 import { z } from 'zod';
 import PDFDocument from 'pdfkit';
 import {
+  addDays,
   businessDate,
   checkApproval,
+  correctionInstants,
+  isOvernight,
+  isShiftWorkDay,
+  lateMinutes,
+  overtimeHours,
+  parseHm,
+  scheduledHours,
+  workedHours,
+  type ShiftDef,
   checkSeats,
   entitledFeatures,
   formatBDT,
@@ -27,7 +37,7 @@ import {
   structureInForce,
   type LeaveType,
 } from '@pulsehr/core';
-import { openDb, one, run, transaction } from './db.js';
+import { openDb, one, run, transaction, type Row } from './db.js';
 import {
   authenticate,
   isLockedOut,
@@ -616,6 +626,15 @@ app.post(
 
 /* =============================== attendance =============================== */
 
+/** The fields of a shift row the pure shift rules need. */
+const shiftDefOf = (r: Row): ShiftDef => ({
+  startTime: String(r.start_time),
+  endTime: String(r.end_time),
+  breakMinutes: Number(r.break_minutes),
+  graceMinutes: Number(r.grace_minutes),
+  workDays: r.work_days ? String(r.work_days).split(',').map(Number) : null,
+});
+
 app.post(
   '/api/attendance/check-in',
   handler(async (req, res) => {
@@ -626,9 +645,22 @@ app.post(
     }
     const now = new Date();
     // ADR-005: the business date is derived in Asia/Dhaka, never from raw UTC.
-    const workDate = businessDate(now);
+    let workDate = businessDate(now);
     const minutes = dhakaMinutesOfDay(now);
     const repo = repoOf(req);
+
+    // A night shift (19:00–03:00) belongs to the day it started: a check-in after midnight,
+    // before that shift's end, with no check-in yet for yesterday, is yesterday's attendance.
+    let nextDay = false;
+    const yesterday = addDays(workDate, -1);
+    const yesterdayShift = await repo.shiftOn(p.employeeId, yesterday);
+    if (yesterdayShift && isOvernight(shiftDefOf(yesterdayShift)) && minutes < parseHm(String(yesterdayShift.end_time))) {
+      const yRow = (await repo.attendanceBetween(p.employeeId, yesterday, yesterday))[0];
+      if (!yRow?.check_in) {
+        workDate = yesterday;
+        nextDay = true;
+      }
+    }
 
     // BUG-08: a second check-in used to silently overwrite the original timestamp,
     // destroying the evidence the lateness signal and payroll both depend on.
@@ -643,18 +675,20 @@ app.post(
       return;
     }
 
-    // BUG-07: office start time is per-department (class diagram: Department.officeStartTime),
-    // not a global 09:00.
-    const SHIFT_START = await repo.officeStartMinutesFor(p.employeeId);
-    const lateMinutes = Math.max(0, minutes - SHIFT_START);
+    // Lateness is measured against the employee's own shift, after its grace period. Without a
+    // shift it falls back to the department's office start time (BUG-07).
+    const shift = nextDay ? yesterdayShift : await repo.shiftOn(p.employeeId, workDate);
+    const lateMin = shift
+      ? lateMinutes(minutes, shiftDefOf(shift), nextDay)
+      : Math.max(0, minutes - (await repo.officeStartMinutesFor(p.employeeId)));
 
     await repo.upsertAttendance(p.employeeId, workDate, {
       check_in: now.toISOString(),
-      late_minutes: lateMinutes,
+      late_minutes: lateMin,
       status: 'PRESENT',
     });
-    await repo.audit('CHECK_IN', 'attendance', p.employeeId, { workDate, lateMinutes });
-    res.json({ workDate, lateMinutes, checkIn: now.toISOString() });
+    await repo.audit('CHECK_IN', 'attendance', p.employeeId, { workDate, lateMinutes: lateMin });
+    res.json({ workDate, lateMinutes: lateMin, checkIn: now.toISOString(), shift: shift ? String(shift.name) : null });
   }),
 );
 
@@ -667,21 +701,352 @@ app.post(
       return;
     }
     const now = new Date();
-    const workDate = businessDate(now);
+    let workDate = businessDate(now);
     const repo = repoOf(req);
-    const existingRows = await repo.attendanceBetween(p.employeeId, workDate, workDate);
-    const existing = existingRows[0];
+    let existing = (await repo.attendanceBetween(p.employeeId, workDate, workDate))[0];
+    // A night shift's check-out lands on the next calendar day: close yesterday's open record.
+    if (!existing?.check_in) {
+      const yesterday = addDays(workDate, -1);
+      const open = (await repo.attendanceBetween(p.employeeId, yesterday, yesterday))[0];
+      const yShift = await repo.shiftOn(p.employeeId, yesterday);
+      if (open?.check_in && !open.check_out && yShift && isOvernight(shiftDefOf(yShift))) {
+        existing = open;
+        workDate = yesterday;
+      }
+    }
     if (!existing?.check_in) {
       res.status(400).json({ error: 'No check-in recorded for today' });
       return;
     }
-    const worked = (now.getTime() - new Date(String(existing.check_in)).getTime()) / 3_600_000;
-    const otHours = Math.max(0, Math.round((worked - 8) * 100) / 100);
+    // Worked hours exclude the shift's unpaid break; overtime is time past 8 hours (§100, §108).
+    const shift = await repo.shiftOn(p.employeeId, workDate);
+    const worked = workedHours(String(existing.check_in), now, shift ? Number(shift.break_minutes) : 0);
+    const otHours = overtimeHours(worked);
     await repo.upsertAttendance(p.employeeId, workDate, {
       check_out: now.toISOString(),
       ot_hours: otHours,
     });
-    res.json({ workDate, hoursWorked: Math.round(worked * 100) / 100, otHours });
+    res.json({ workDate, hoursWorked: worked, otHours });
+  }),
+);
+
+/* ============================== shifts ====================================
+ * HR defines shifts. HR assigns them to anyone; a manager to people in their own department.
+ * Every employee can see their own duty times.
+ */
+
+const WORK_DAYS = z.array(z.number().int().min(0).max(6)).min(1).max(7).nullable();
+
+/** HR acts on anyone; a manager on others in their own department, never on themselves. */
+async function canManageEmployee(repo: Repo, p: Principal, employeeId: string): Promise<boolean> {
+  if (p.role === 'HR_ADMIN') return !!(await repo.getEmployee(employeeId));
+  if (p.role !== 'MANAGER' || !p.employeeId || p.employeeId === employeeId) return false;
+  const [me, target] = [await repo.getEmployee(p.employeeId), await repo.getEmployee(employeeId)];
+  return !!target && (target.department_id ?? null) === (me?.department_id ?? null);
+}
+
+async function managerDepartment(repo: Repo, p: Principal): Promise<string | null | undefined> {
+  if (p.role !== 'MANAGER') return undefined; // HR: every department
+  const me = p.employeeId ? await repo.getEmployee(p.employeeId) : undefined;
+  return me?.department_id ? String(me.department_id) : null;
+}
+
+app.get(
+  '/api/shifts',
+  requireRole('MANAGER', 'HR_ADMIN'),
+  handler(async (req, res) => {
+    res.json(await repoOf(req).listShifts());
+  }),
+);
+
+app.post(
+  '/api/shifts',
+  requireRole('HR_ADMIN'),
+  handler(async (req, res) => {
+    const body = z
+      .object({
+        name: z.string().trim().min(1).max(60),
+        startTime: z.string().regex(TIME_RE),
+        endTime: z.string().regex(TIME_RE),
+        breakMinutes: z.number().int().min(0).max(240).default(60),
+        graceMinutes: z.number().int().min(0).max(120).default(0),
+        workDays: WORK_DAYS.default(null),
+      })
+      .parse(req.body);
+    if (body.startTime === body.endTime) {
+      res.status(400).json({ error: 'A shift cannot start and end at the same time.' });
+      return;
+    }
+    if (scheduledHours(body) <= 0) {
+      res.status(400).json({ error: 'The break is longer than the shift.' });
+      return;
+    }
+    const repo = repoOf(req);
+    if ((await repo.listShifts()).some((s) => String(s.name).toLowerCase() === body.name.toLowerCase())) {
+      res.status(409).json({ error: `A shift called ${body.name} already exists.` });
+      return;
+    }
+    res.status(201).json({ id: await repo.createShift(body) });
+  }),
+);
+
+app.post(
+  '/api/shifts/assign',
+  requireRole('MANAGER', 'HR_ADMIN'),
+  handler(async (req, res) => {
+    const { employeeIds, shiftId, effectiveFrom } = z
+      .object({
+        employeeIds: z.array(z.string()).min(1).max(500),
+        shiftId: z.string(),
+        effectiveFrom: z.string().regex(DATE_RE),
+      })
+      .parse(req.body);
+    const repo = repoOf(req);
+    const shift = await repo.getShift(shiftId);
+    if (!shift || Number(shift.is_active) !== 1) {
+      res.status(400).json({ error: 'Choose an active shift.' });
+      return;
+    }
+    // Past days keep the shift they were worked against; a change starts today or later.
+    if (effectiveFrom < businessDate(new Date())) {
+      res.status(400).json({ error: 'A shift change cannot start in the past.' });
+      return;
+    }
+    for (const id of employeeIds) {
+      const emp = await repo.getEmployee(id);
+      if (!emp || emp.employment_status !== 'ACTIVE' || !(await canManageEmployee(repo, req.principal!, id))) {
+        res.status(403).json({ error: 'You can only assign shifts to active employees you manage.' });
+        return;
+      }
+    }
+    await repo.assignShift(employeeIds, shiftId, effectiveFrom);
+    res.json({ ok: true, assigned: employeeIds.length });
+  }),
+);
+
+// Start and end times are deliberately not editable: past lateness was measured against them.
+// A different duty time is a new shift, assigned from a date.
+app.post(
+  '/api/shifts/:id',
+  requireRole('HR_ADMIN'),
+  handler(async (req, res) => {
+    const body = z
+      .object({
+        name: z.string().trim().min(1).max(60).optional(),
+        breakMinutes: z.number().int().min(0).max(240).optional(),
+        graceMinutes: z.number().int().min(0).max(120).optional(),
+        workDays: WORK_DAYS.optional(),
+        isActive: z.boolean().optional(),
+      })
+      .parse(req.body);
+    if (!(await repoOf(req).updateShift(req.params.id!, body))) {
+      res.status(404).json({ error: 'Not found' });
+      return;
+    }
+    res.json({ ok: true });
+  }),
+);
+
+app.get(
+  '/api/shifts/overview',
+  requireRole('MANAGER', 'HR_ADMIN'),
+  handler(async (req, res) => {
+    const repo = repoOf(req);
+    res.json(await repo.shiftOverview(businessDate(new Date()), await managerDepartment(repo, req.principal!)));
+  }),
+);
+
+// Duty time: today's shift, the next 14 days, and the assignment history.
+app.get(
+  '/api/me/shift',
+  handler(async (req, res) => {
+    const p = req.principal!;
+    if (!p.employeeId) {
+      res.status(404).json({ error: 'This account has no employee record.' });
+      return;
+    }
+    const repo = repoOf(req);
+    const today = businessDate(new Date());
+    const org = await one('SELECT weekend_days FROM organisation WHERE id = ?', p.organisationId);
+    const weekendDays = String(org?.weekend_days ?? '5,6').split(',').map(Number);
+    const holidays = new Set(await repo.holidays());
+    const roster = [];
+    for (let i = 0; i < 14; i++) {
+      const date = addDays(today, i);
+      const shift = await repo.shiftOn(p.employeeId, date);
+      const def = shift ? shiftDefOf(shift) : null;
+      const status = holidays.has(date)
+        ? 'HOLIDAY'
+        : (await repo.approvedLeaveOn(p.employeeId, date))
+          ? 'LEAVE'
+          : isShiftWorkDay(date, def, weekendDays)
+            ? 'WORK'
+            : 'OFF';
+      roster.push({
+        date,
+        status,
+        shift: shift ? { name: shift.name, startTime: shift.start_time, endTime: shift.end_time } : null,
+      });
+    }
+    const current = await repo.shiftOn(p.employeeId, today);
+    res.json({
+      today: current
+        ? {
+            name: current.name,
+            startTime: current.start_time,
+            endTime: current.end_time,
+            breakMinutes: Number(current.break_minutes),
+            graceMinutes: Number(current.grace_minutes),
+            scheduledHours: scheduledHours(shiftDefOf(current)),
+            overnight: isOvernight(shiftDefOf(current)),
+            since: current.effective_from,
+          }
+        : null,
+      roster,
+      history: await repo.shiftAssignmentsFor(p.employeeId),
+    });
+  }),
+);
+
+/* ======================== attendance corrections ==========================
+ * An employee asks for a missed or wrong check-in / check-out to be corrected; their manager
+ * or HR approves it. A manager or HR can also fix a record directly, with a reason. Either
+ * way the old values are kept on the correction and in the audit log, and a month whose
+ * payroll has been issued is closed to changes.
+ */
+
+const correctionInput = z.object({
+  employeeId: z.string().optional(),
+  workDate: z.string().regex(DATE_RE),
+  checkIn: z.string().regex(TIME_RE),
+  checkOut: z.string().regex(TIME_RE).nullable().default(null),
+  reason: z.string().trim().min(5).max(500),
+});
+
+async function correctionProblem(repo: Repo, employeeId: string, workDate: string, checkIn: Date, checkOut: Date | null): Promise<string | null> {
+  if (workDate > businessDate(new Date())) return 'Attendance cannot be corrected for a future date.';
+  if (checkIn.getTime() > Date.now() || (checkOut && checkOut.getTime() > Date.now())) return 'A corrected time cannot be in the future.';
+  if (checkOut && (checkOut.getTime() - checkIn.getTime()) / 3_600_000 > 20) return 'That would be more than 20 hours of work in one shift.';
+  if (await repo.payrollIssuedFor(employeeId, workDate)) return 'Payroll for that month has been issued, so its attendance is closed.';
+  if (await repo.approvedLeaveOn(employeeId, workDate)) return 'That day is approved leave. Cancel the leave before recording attendance.';
+  return null;
+}
+
+app.post(
+  '/api/attendance/corrections',
+  handler(async (req, res) => {
+    const p = req.principal!;
+    const body = correctionInput.parse(req.body);
+    const repo = repoOf(req);
+    const employeeId = body.employeeId ?? p.employeeId;
+    if (!employeeId) {
+      res.status(400).json({ error: 'No employee record linked to this user' });
+      return;
+    }
+    const forSelf = employeeId === p.employeeId;
+    if (!forSelf && !(await canManageEmployee(repo, p, employeeId))) {
+      res.status(403).json({ error: 'You can only correct attendance for people you manage.' });
+      return;
+    }
+    const { checkIn, checkOut } = correctionInstants(body.workDate, body.checkIn, body.checkOut);
+    const problem = await correctionProblem(repo, employeeId, body.workDate, checkIn, checkOut);
+    if (problem) {
+      res.status(409).json({ error: problem });
+      return;
+    }
+    const pending = await repo.listCorrections({ employeeId, status: 'PENDING' });
+    if (pending.some((c) => c.work_date === body.workDate)) {
+      res.status(409).json({ error: 'There is already a pending correction for that day.' });
+      return;
+    }
+
+    const result = await transaction(async () => {
+      const id = await repo.createCorrection({
+        employeeId,
+        workDate: body.workDate,
+        checkIn: checkIn.toISOString(),
+        checkOut: checkOut ? checkOut.toISOString() : null,
+        reason: body.reason,
+      });
+      if (!forSelf) {
+        // A manager or HR fixing someone else's record: applied at once.
+        await repo.applyCorrection((await repo.getCorrection(id))!, { status: 'APPROVED', reason: body.reason });
+        const emp = await repo.getEmployee(employeeId);
+        if (emp?.user_id) {
+          await repo.notify(String(emp.user_id), 'CORRECTION_DECIDED', `Your attendance for ${body.workDate} was corrected: ${body.reason}`, 'attendance_correction', id);
+        }
+        return { id, status: 'APPROVED' };
+      }
+      // An employee's own request waits for their manager, or HR if they have none.
+      const approvers = [(await repo.managerUserIdFor(employeeId)) ?? null].filter(Boolean) as string[];
+      for (const userId of approvers.length ? approvers : await repo.hrAdminUserIds()) {
+        const emp = await repo.getEmployee(employeeId);
+        await repo.notify(userId, 'CORRECTION_PENDING', `${emp?.full_name ?? 'An employee'} asked to correct attendance for ${body.workDate}.`, 'attendance_correction', id);
+      }
+      return { id, status: 'PENDING' };
+    });
+    res.status(201).json(result);
+  }),
+);
+
+app.get(
+  '/api/attendance/corrections',
+  handler(async (req, res) => {
+    const p = req.principal!;
+    const repo = repoOf(req);
+    const status = typeof req.query.status === 'string' ? req.query.status : undefined;
+    if (p.role === 'EMPLOYEE' || req.query.mine === '1') {
+      res.json(await repo.listCorrections({ employeeId: p.employeeId ?? '__none__', status }));
+      return;
+    }
+    const departmentId = await managerDepartment(repo, p);
+    const rows = await repo.listCorrections({ departmentId, status });
+    // A manager doesn't see (or decide) their own requests here; someone else approves those.
+    res.json(p.role === 'MANAGER' ? rows.filter((r) => r.employee_id !== p.employeeId) : rows);
+  }),
+);
+
+app.post(
+  '/api/attendance/corrections/:id/decision',
+  requireRole('MANAGER', 'HR_ADMIN'),
+  handler(async (req, res) => {
+    const { decision, reason } = z
+      .object({ decision: z.enum(['APPROVE', 'REJECT']), reason: z.string().trim().max(500).optional() })
+      .parse(req.body);
+    const p = req.principal!;
+    const repo = repoOf(req);
+    const result = await transaction(async () => {
+      const c = await repo.getCorrection(req.params.id!);
+      if (!c) return { status: 404, body: { error: 'Not found' } };
+      if (c.status !== 'PENDING') return { status: 409, body: { error: `This request was already ${String(c.status).toLowerCase()}.` } };
+      if (!(await canManageEmployee(repo, p, String(c.employee_id)))) {
+        return { status: 403, body: { error: 'You can only decide corrections for people you manage.' } };
+      }
+      if (decision === 'REJECT') {
+        if (!reason) return { status: 400, body: { error: 'A reason is required to reject a correction.' } };
+        await repo.rejectCorrection(String(c.id), reason);
+      } else {
+        const inAt = new Date(String(c.requested_check_in));
+        const outAt = c.requested_check_out ? new Date(String(c.requested_check_out)) : null;
+        const problem = await correctionProblem(repo, String(c.employee_id), String(c.work_date), inAt, outAt);
+        if (problem) return { status: 409, body: { error: problem } };
+        await repo.applyCorrection(c, { status: 'APPROVED', reason });
+      }
+      await repo.clearPendingNotificationsFor('attendance_correction', String(c.id));
+      const emp = await repo.getEmployee(String(c.employee_id));
+      if (emp?.user_id) {
+        const verb = decision === 'APPROVE' ? 'approved' : 'rejected';
+        await repo.notify(
+          String(emp.user_id),
+          'CORRECTION_DECIDED',
+          `Your attendance correction for ${c.work_date} was ${verb}.${reason ? ` ${reason}` : ''}`,
+          'attendance_correction',
+          String(c.id),
+        );
+      }
+      return { status: 200, body: { status: decision === 'APPROVE' ? 'APPROVED' : 'REJECTED' } };
+    });
+    res.status(result.status).json(result.body);
   }),
 );
 

@@ -20,6 +20,8 @@ export interface AbsenceInput {
   /** Last day of employment, if the employee has left. */
   separationDate?: DhakaDate | null;
   week: WorkWeek;
+  /** Overrides `week` day by day — an employee's shift may work days the organisation doesn't. */
+  isWorkingDay?: (date: DhakaDate) => boolean;
   /** Days that already have an attendance row of any status. */
   recordedDates: Iterable<DhakaDate>;
   /** Approved leave, inclusive ranges. */
@@ -38,14 +40,13 @@ export function absencesToMark(input: AbsenceInput): AbsenceMark[] {
   const end = input.separationDate && input.separationDate < input.to ? input.separationDate : input.to;
   if (start > end) return [];
 
-  const absent = eachDay(start, end).filter(
-    (d) => isWorkingDay(d, input.week) && !recorded.has(d) && !onLeave(d),
-  );
+  const working = input.isWorkingDay ?? ((d: DhakaDate) => isWorkingDay(d, input.week));
+  const absent = eachDay(start, end).filter((d) => working(d) && !recorded.has(d) && !onLeave(d));
   const absentSet = new Set(absent);
   // Neighbours are judged by what they are, not only inside the window: an absence on the
   // first or last day of the window still sees the weekend next to it.
   const isAbsentDay = (d: DhakaDate) => absentSet.has(d);
-  const isOffDay = (d: DhakaDate) => !isWorkingDay(d, input.week);
+  const isOffDay = (d: DhakaDate) => !working(d);
 
   return absent.map((date) => {
     const before = addDays(date, -1);

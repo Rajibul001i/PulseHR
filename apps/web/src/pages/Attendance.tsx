@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { get, post } from '../api';
+import { CorrectionForm, CorrectionQueue, MyCorrections, MyDutyTime, dhakaTime } from '../components/AttendanceTools';
 
 interface GridRow {
   employee_id: string;
@@ -8,6 +9,8 @@ interface GridRow {
   status: string;
   late_minutes: number;
   ot_hours: number;
+  check_in?: string | null;
+  check_out?: string | null;
 }
 
 function monthBounds(iso: string): { from: string; to: string; days: string[] } {
@@ -29,8 +32,32 @@ export function Attendance({ role }: { role: string }) {
   const [rows, setRows] = useState<GridRow[]>([]);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [managed, setManaged] = useState<{ employee_id: string; full_name: string }[]>([]);
+  const [preset, setPreset] = useState<{ employeeId: string; workDate: string } | null>(null);
+  const [hasOwnRecord, setHasOwnRecord] = useState(role !== 'HR_ADMIN');
+  const fixRef = useRef<HTMLDivElement>(null);
+  const canFix = role === 'MANAGER' || role === 'HR_ADMIN';
+
+  useEffect(() => {
+    // Managers and HR fix attendance for the people they manage (the API scopes the list).
+    if (canFix) get<{ employee_id: string; full_name: string }[]>('/shifts/overview').then(setManaged).catch(() => setManaged([]));
+    get<{ employee: unknown }>('/me').then((m) => setHasOwnRecord(!!m.employee)).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [role]);
+
+  const refresh = () => {
+    setRefreshKey((k) => k + 1);
+    void load();
+  };
+
+  function pickCell(employeeId: string, workDate: string) {
+    setPreset({ employeeId, workDate });
+    fixRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
 
   const { from, to, days } = monthBounds(month);
+  const todayDhaka = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Dhaka' }).format(new Date());
 
   async function load() {
     try {
@@ -52,7 +79,7 @@ export function Attendance({ role }: { role: string }) {
       const res = await post<Record<string, unknown>>(`/attendance/${kind}`);
       setMessage(
         kind === 'check-in'
-          ? `Checked in for ${res.workDate} (${res.lateMinutes} min late)`
+          ? `Checked in for ${res.workDate}${res.shift ? ` on the ${res.shift} shift` : ''} (${res.lateMinutes ? `${res.lateMinutes} min late` : 'on time'})`
           : `Checked out — ${res.hoursWorked}h worked, ${res.otHours}h overtime`,
       );
       await load();
@@ -78,6 +105,8 @@ export function Attendance({ role }: { role: string }) {
       {error && <p className="error content-in">{error}</p>}
       {message && <p className="notice">{message}</p>}
 
+      <MyDutyTime />
+
       <div className="card">
         <div className="row">
           <div style={{ maxWidth: 190 }}>
@@ -96,6 +125,24 @@ export function Attendance({ role }: { role: string }) {
         </div>
       </div>
 
+      {canFix && (
+        <div ref={fixRef} style={{ marginTop: 14 }}>
+          <CorrectionQueue refreshKey={refreshKey} onDecided={refresh} />
+          <CorrectionForm employees={managed} preset={preset} onDone={refresh} />
+        </div>
+      )}
+      {hasOwnRecord && (
+        <details className="card" style={{ marginTop: 14 }}>
+          <summary className="stat-label" style={{ cursor: 'pointer' }}>
+            My attendance is wrong — ask for a correction
+          </summary>
+          <div style={{ marginTop: 10 }}>
+            <CorrectionForm onDone={refresh} />
+            <MyCorrections refreshKey={refreshKey} />
+          </div>
+        </details>
+      )}
+
       <div className="card att-grid">
         <table>
           <thead>
@@ -113,18 +160,21 @@ export function Attendance({ role }: { role: string }) {
                 {days.map((d) => {
                   const cell = row.cells.get(d);
                   const late = cell?.status === 'PRESENT' && Number(cell.late_minutes) > 15;
+                  const title = cell
+                    ? `${d} · ${cell.status}${
+                        cell.status === 'PRESENT'
+                          ? ` · ${dhakaTime(cell.check_in)}–${dhakaTime(cell.check_out)} · ${cell.late_minutes} min late`
+                          : ''
+                      }`
+                    : d;
+                  const className = `cell ${late ? 'late' : (cell?.status ?? '')}`;
                   return (
                     <td key={d}>
-                      <span
-                        className={`cell ${late ? 'late' : (cell?.status ?? '')}`}
-                        title={
-                          cell
-                            ? `${d} · ${cell.status}${
-                                cell.status === 'PRESENT' ? ` · ${cell.late_minutes} min late` : ''
-                              }`
-                            : d
-                        }
-                      />
+                      {canFix && id !== 'me' && d <= todayDhaka ? (
+                        <button type="button" className={className} title={`${title} · click to fix`} aria-label={`Fix ${row.name}, ${d}`} onClick={() => pickCell(id, d)} />
+                      ) : (
+                        <span className={className} title={title} />
+                      )}
                     </td>
                   );
                 })}
@@ -138,6 +188,7 @@ export function Attendance({ role }: { role: string }) {
           </tbody>
         </table>
 
+        {canFix && <p className="stat-note">Hover a day to see its times. Click a day to fix it.</p>}
         <div className="legend">
           <span>
             <i className="cell PRESENT" /> Present

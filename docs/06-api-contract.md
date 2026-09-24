@@ -45,10 +45,25 @@ Base URL `/api`. All responses JSON. All endpoints except `/auth/*` require
 
 | Method | Path | Role | Notes |
 |---|---|---|---|
-| POST | `/attendance/check-in` | any | Business date derived in **Asia/Dhaka** (ADR-005) |
-| POST | `/attendance/check-out` | any | Computes hours worked and OT |
+| POST | `/attendance/check-in` | any | Business date derived in **Asia/Dhaka** (ADR-005). Lateness is measured from the employee's shift start, after its grace period; a night-shift check-in after midnight counts for the day the shift started |
+| POST | `/attendance/check-out` | any | Worked hours exclude the shift's unpaid break; overtime is time past 8 hours (§100, §108). Closes last night's open record for a night shift |
 | GET | `/attendance/mine?from&to` | any | Own records only |
-| GET | `/attendance/grid?from&to` | MANAGER, HR | The monthly grid — hot path |
+| GET | `/attendance/grid?from&to` | MANAGER, HR | The monthly grid — hot path. Managers see their own department |
+| POST | `/attendance/absence-runs` | HR | Mark absences now instead of waiting for 02:00 |
+| POST | `/attendance/corrections` | any | Without `employeeId` (or with your own): a request that waits for approval. With someone else's `employeeId`: MANAGER (own department) or HR, applied at once. Refused for a future date, a paid month, or a day of approved leave |
+| GET | `/attendance/corrections?status&mine` | any | Employee: own. Manager: department, excluding their own. HR: all |
+| POST | `/attendance/corrections/:id/decision` | MANAGER, HR | `APPROVE` rewrites the record and keeps the previous values; `REJECT` needs a reason |
+
+### Shifts
+
+| Method | Path | Role | Notes |
+|---|---|---|---|
+| GET | `/shifts` | MANAGER, HR | Shift definitions |
+| POST | `/shifts` | HR | Name, start, end (an end before the start runs overnight), break, grace, working days |
+| POST | `/shifts/:id` | HR | Break, grace, working days, retire. Start and end are fixed once created |
+| GET | `/shifts/overview` | MANAGER, HR | Each active employee's shift today and next change |
+| POST | `/shifts/assign` | MANAGER (own department), HR | From today or a later date; effective-dated, history kept |
+| GET | `/me/shift` | any | Today's shift, a 14-day roster, assignment history |
 
 ## 5. Leave
 

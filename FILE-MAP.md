@@ -59,10 +59,11 @@ packages/core/src/subscription.ts    Entitlement matrix + seat accounting
 packages/core/src/billing.ts         Plan-change proration and invoices
 packages/core/src/attendance.ts      Absence marking rule (F3.3)
 packages/core/src/fairness.ts        Quarterly bias audit (spec §9)
+packages/core/src/shift.ts           Shifts: lateness, night shifts, overtime past 8 h
 packages/core/src/index.ts           Barrel export
 ```
 
-**Tests — 122 passing:**
+**Tests — 130 passing:**
 ```
 packages/core/test/payroll.test.ts        26 tests
 packages/core/test/leave.test.ts          25 tests
@@ -70,7 +71,8 @@ packages/core/test/attrition.test.ts      22 tests
 packages/core/test/subscription.test.ts   16 tests
 packages/core/test/dates.test.ts          13 tests
 packages/core/test/fairness.test.ts        8 tests
-packages/core/test/attendance.test.ts      7 tests
+packages/core/test/attendance.test.ts      8 tests
+packages/core/test/shift.test.ts           7 tests
 packages/core/test/billing.test.ts         5 tests
 ```
 
@@ -94,8 +96,8 @@ apps/api/src/jobs/biasAudit.ts       Quarterly bias audit
 apps/api/src/jobs/scheduler.ts       Nightly 02:00 Asia/Dhaka schedule
 apps/api/src/mailer.ts               Password-reset email over SMTP (optional)
 
-apps/api/migrations/                 13 forward-only SQLite migrations (001–013)
-apps/api/migrations-postgres/        The same 13 migrations for PostgreSQL
+apps/api/migrations/                 14 forward-only SQLite migrations (001–014)
+apps/api/migrations-postgres/        The same 14 migrations for PostgreSQL
 ```
 
 ### Frontend — `apps/web/`
@@ -109,10 +111,11 @@ apps/web/src/styles.css              Design tokens, light + dark, responsive
 
 apps/web/src/components/             Toast, Feedback (skeletons, empty states),
                                      NotificationBell, Logo, RiskInsights,
-                                     MyRiskIndicator
+                                     MyRiskIndicator, AttendanceTools (duty time,
+                                     correction form and review queue)
 
-apps/web/src/pages/                  14 screens: Login, ResetPassword, Dashboard,
-                                     Profile, People, Attendance, Leave, Payslips,
+apps/web/src/pages/                  15 screens: Login, ResetPassword, Dashboard,
+                                     Profile, People, Attendance, Shifts, Leave, Payslips,
                                      Notices, AtRisk, Plan, OKR, Recruitment, Careers
 ```
 
@@ -150,7 +153,7 @@ FILE-MAP.md                This file
 
 ```bash
 npm install                      # first time only
-npm test                         # 122 unit tests
+npm test                         # 130 unit tests
 npm run demo                     # everything on http://localhost:4000
 npm run seed                     # 3 tenants of demo data
 npm run job:score                # attrition scoring batch

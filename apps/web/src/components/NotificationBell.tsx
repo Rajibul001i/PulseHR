@@ -5,7 +5,7 @@ import './notification-bell.css';
 
 interface AppNotification {
   id: string;
-  type: 'LEAVE_PENDING' | 'LEAVE_DECIDED';
+  type: 'LEAVE_PENDING' | 'LEAVE_DECIDED' | 'CORRECTION_PENDING' | 'CORRECTION_DECIDED' | 'SHIFT_ASSIGNED';
   message: string;
   entity_type: string | null;
   entity_id: string | null;
@@ -60,6 +60,7 @@ export function NotificationBell() {
       load();
     }
     if (n.entity_type === 'leave_request') navigate('/leave');
+    else if (n.entity_type === 'attendance_correction' || n.entity_type === 'shift') navigate('/attendance');
   }
 
   async function markAllRead() {

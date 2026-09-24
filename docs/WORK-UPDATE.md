@@ -6,6 +6,45 @@ as a changelog.
 
 ---
 
+## Session 7 — 24 September 2026
+
+### Shifts, duty times and attendance corrections
+
+A gap found on review: attendance had no idea who works when. Lateness was measured against a
+single department start time, employees couldn't see their own duty hours, and a missed or
+wrong check-in could not be corrected by anyone.
+
+- **Shifts** (new Shifts screen, managers and HR): a shift has a start and end in Asia/Dhaka,
+  an unpaid break, a grace period before someone counts as late, and its own working days (a
+  weekend support shift can work Friday). An end before the start runs overnight — the night
+  shift serving US clients — and its attendance belongs to the day it starts.
+- **Assignments are effective-dated**, like salaries: a change starts today or later, the old
+  one is kept, and the employee is notified. Managers assign within their own department; HR
+  assigns anyone and defines the shifts. Start and end times can't be edited once used, since
+  past lateness was measured against them.
+- **Duty time for employees:** Attendance shows today's shift and a 14-day roster (working
+  days, days off, holidays, leave).
+- **Check-in and check-out follow the shift:** lateness from the shift start after grace; a
+  check-in after midnight within a night shift counts for the day before; worked hours exclude
+  the break; overtime is time past 8 worked hours (Labour Act §100, §108).
+- **Attendance corrections:** an employee asks for a fix and their manager or HR approves or
+  rejects it (a rejection needs a reason). A manager or HR can also fix a record directly by
+  clicking the day in the grid. Every correction keeps the values it replaced; a manager's own
+  correction waits for someone else; a future date, a day of approved leave, or a month whose
+  payroll is issued cannot be changed. Both sides are notified.
+- **Absence marking follows shift working days,** so a Friday worker's missed Friday counts
+  and their day off doesn't.
+
+**Found and fixed while testing:** `POST /api/shifts/assign` was being caught by the
+`POST /api/shifts/:id` route declared above it, so assigning a shift returned "Requires role:
+HR_ADMIN" even for HR. The more specific route now comes first.
+
+**Verified** on SQLite and PostgreSQL 16: 130 unit tests (7 new shift rules, 1 new absence
+rule), 30/30 smoke, 137 regression checks with 0 defects (29 new), and a browser walk-through
+as employee, manager and HR.
+
+---
+
 ## Session 6 — 24 September 2026
 
 ### 1. Live demo restored

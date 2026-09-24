@@ -16,6 +16,7 @@ import { Leave } from './pages/Leave';
 import { Payslips } from './pages/Payslips';
 import { AtRisk } from './pages/AtRisk';
 import { People } from './pages/People';
+import { Shifts } from './pages/Shifts';
 import { Plan } from './pages/Plan';
 import { OKR } from './pages/OKR';
 import { Recruitment } from './pages/Recruitment';
@@ -139,6 +140,7 @@ const NAV: NavItem[] = [
   { to: '/profile', label: 'My profile' },
   { to: '/people', label: 'People', roles: ['HR_ADMIN'] },
   { to: '/attendance', label: 'Attendance', feature: 'attendance' },
+  { to: '/shifts', label: 'Shifts', feature: 'attendance', roles: ['MANAGER', 'HR_ADMIN'] },
   { to: '/leave', label: 'Leave', feature: 'leave' },
   { to: '/payslips', label: 'Payslips', feature: 'payroll' },
   { to: '/notices', label: 'Noticeboard', feature: 'noticeboard' },
@@ -286,6 +288,7 @@ function Shell() {
           <Route path="/profile" element={<Profile role={role} />} />
           <Route path="/people" element={role === 'HR_ADMIN' ? <People /> : <Profile role={role} />} />
           <Route path="/attendance" element={<Attendance role={role} />} />
+          <Route path="/shifts" element={role === 'EMPLOYEE' ? <Attendance role={role} /> : <Shifts role={role} />} />
           <Route path="/leave" element={<Leave role={role} />} />
           <Route path="/payslips" element={<Payslips role={role} />} />
           <Route path="/notices" element={<Notices role={role} />} />

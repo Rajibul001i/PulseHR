@@ -136,6 +136,7 @@ async function seedOrganisation(opts: {
   );
 
   const employeeIds: string[] = [];
+  const people: { name: string; employeeId: string; userId: string; department: string; hireDate: string }[] = [];
   let managerId: string | null = null;
 
   // Sequential, not Promise.all -- a manager's employeeId must be committed before the next
@@ -183,6 +184,7 @@ async function seedOrganisation(opts: {
     );
     if (isManager) managerId = employeeId;
     employeeIds.push(employeeId);
+    people.push({ name: profile.name, employeeId, userId, department: profile.department, hireDate });
 
     // --- Salary structure. "calm" long-tenure staff got a raise; "leaving" did not (F5).
     const basic = taka(profile.basic);
@@ -265,6 +267,8 @@ async function seedOrganisation(opts: {
     await seedOkr(orgId, employeeId, userId, profile);
   }
 
+  await seedShifts(orgId, hrUserId, people);
+
   // Noticeboard
   for (const [title, body] of [
     ['Eid-ul-Adha Holiday Schedule', 'The office will remain closed for the festival holiday. Payroll for the month will be processed on schedule.'],
@@ -285,6 +289,64 @@ async function seedOrganisation(opts: {
   console.log(
     `[seed] ${opts.name} (${opts.tier}) — ${employeeIds.length} employees, login hr@${opts.emailDomain} / Passw0rd!`,
   );
+}
+
+/**
+ * Shifts. Everyone is on their department's day shift from their hire date (matching the
+ * department start times above), and one Support engineer moves to the US-hours night shift
+ * next week, so the roster shows an upcoming change. One employee has a pending request to
+ * correct a day they forgot to check out, for their manager to review.
+ */
+async function seedShifts(
+  orgId: string,
+  hrUserId: string,
+  people: { name: string; employeeId: string; userId: string; department: string; hireDate: string }[],
+): Promise<void> {
+  const shiftIds = new Map<string, string>();
+  for (const [name, start, end, brk, grace, workDays] of [
+    ['General', '09:00', '17:00', 60, 10, null],
+    ['Early', '08:30', '16:30', 60, 10, null],
+    ['Late', '10:00', '18:00', 60, 10, null],
+    ['Night (US clients)', '19:00', '03:00', 30, 5, '1,2,3,4,5'],
+  ] as const) {
+    const id = uuid();
+    shiftIds.set(name, id);
+    await run(
+      `INSERT INTO shift (id, organisation_id, name, start_time, end_time, break_minutes, grace_minutes, work_days, is_active, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`,
+      id, orgId, name, start, end, brk, grace, workDays, nowIso(),
+    );
+  }
+  const assign = (employeeId: string, shift: string, from: string) =>
+    run(
+      `INSERT INTO shift_assignment (id, organisation_id, employee_id, shift_id, effective_from, assigned_by, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      uuid(), orgId, employeeId, shiftIds.get(shift)!, from, hrUserId, nowIso(),
+    );
+  for (const p of people) {
+    await assign(p.employeeId, p.department === 'Support' ? 'Early' : p.department === 'Sales' ? 'Late' : 'General', p.hireDate);
+  }
+  const nightMover = people.find((p) => p.name.startsWith('Fahim Reza'));
+  if (nightMover) await assign(nightMover.employeeId, 'Night (US clients)', addDays(TODAY, 7));
+
+  // A forgotten check-out on the most recent working day this month (a month not yet paid).
+  const forgetful = people.find((p) => p.name.startsWith('Nusrat Jahan'));
+  let day = addDays(TODAY, -1);
+  while (!isWorkingDay(day, DEFAULT_WORK_WEEK)) day = addDays(day, -1);
+  if (forgetful && day.slice(0, 7) === TODAY.slice(0, 7)) {
+    const row = await one('SELECT check_in FROM attendance WHERE employee_id = ? AND work_date = ?', forgetful.employeeId, day);
+    if (row?.check_in) {
+      await run('UPDATE attendance SET check_out = NULL, ot_hours = 0 WHERE employee_id = ? AND work_date = ?', forgetful.employeeId, day);
+      await run(
+        `INSERT INTO attendance_correction (id, organisation_id, employee_id, work_date, requested_check_in, requested_check_out,
+                                            reason, status, requested_by, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDING', ?, ?)`,
+        uuid(), orgId, forgetful.employeeId, day, String(row.check_in),
+        new Date(new Date(`${day}T00:00:00.000Z`).getTime() + (17 * 60 + 30 - 6 * 60) * 60_000).toISOString(),
+        'Forgot to check out. I left at 17:30 after the release call.', forgetful.userId, nowIso(),
+      );
+    }
+  }
 }
 
 const quarterOf = (date: string): string => `${date.slice(0, 4)}-Q${Math.floor((Number(date.slice(5, 7)) - 1) / 3) + 1}`;
@@ -447,6 +509,7 @@ if (process.env.DATABASE_URL) {
 // be cleared before anything it references (FK enforcement is on, db.ts).
 for (const table of [
   'key_result_update', 'bias_audit_report', // added with migration 013
+  'attendance_correction', 'shift_assignment', 'shift', // added with migration 014
   'key_result', 'candidate_stage_event', 'candidate_evaluation', 'notice_department', 'notice_read',
   'attrition_contribution', 'attrition_score', 'payslip_line', 'payslip', 'leave_ledger',
   'leave_request', 'attendance', 'salary_structure', 'notice', 'audit_log', 'holiday',

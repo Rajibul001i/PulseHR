@@ -31,7 +31,7 @@ Everything below has been executed on this machine, not just written.
 
 ```bash
 npm install
-npm test          # 122 unit tests
+npm test          # 130 unit tests
 npm run seed      # 2 organisations, 26 employees, 4,706 attendance rows
 npm run job:score # nightly attrition batch
 npm run job:payroll -- 2026 8
@@ -71,11 +71,11 @@ install, no Docker.
 
 | Check | Result |
 |---|---|
-| `npm test` | **122 / 122 passing** |
+| `npm test` | **130 / 130 passing** |
 | `npx tsc -b` | **clean**, TypeScript strict across 3 workspaces |
 | `npm run build` | frontend builds, 214 kB (70 kB gzipped) |
 | `node scripts/smoke.mjs` | **30 / 30 passing** against a live API |
-| `node scripts/bughunt.mjs` | **108 checks, 0 defects** (run on a fresh seed) |
+| `node scripts/bughunt.mjs` | **137 checks, 0 defects** (run on a fresh seed) |
 | `node scripts/verify-leave-overlap.mjs` | the database itself refuses overlapping approved leave |
 | All of the above with `DATABASE_URL` set | same results on PostgreSQL 16 |
 | Payslip immutability trigger | verified — `UPDATE` rejected at the database level |
@@ -119,11 +119,11 @@ demonstrates the difference.
 
 ```
 packages/core/     Pure domain logic — money, dates, leave, payroll, attrition.
-                   No I/O, no clock, no database. 122 tests.
+                   No I/O, no clock, no database. 130 tests.
 apps/api/          Express API + worker jobs + migrations + seeder.
 apps/web/          React 18 SPA (Vite, Redux Toolkit).
 scripts/smoke.mjs  30 end-to-end checks, each mapped to a defect.
-scripts/bughunt.mjs 108 regression checks for every SQA defect and closed gap.
+scripts/bughunt.mjs 137 regression checks for every SQA defect, closed gap and shift rule.
 scripts/demo.mjs   One-command demo: seed, score, payroll, serve web + API.
 tools/             fix_deck_numbering.py — repairs the deck's slide numbers.
 docs/              Groundwork.

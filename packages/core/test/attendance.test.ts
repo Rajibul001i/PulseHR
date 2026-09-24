@@ -55,6 +55,17 @@ describe('F3.3 absence marking', () => {
     ]);
   });
 
+  it('follows the employee\'s shift days when given, e.g. a shift that works Fridays', () => {
+    const marks = absencesToMark({
+      ...base,
+      from: '2026-09-10',
+      to: '2026-09-12', // Thu, Fri, Sat
+      recordedDates: ['2026-09-10'],
+      isWorkingDay: (d) => d !== '2026-09-12', // works Friday, off Saturday
+    });
+    expect(marks).toEqual([{ date: '2026-09-11', unplanned: true }]);
+  });
+
   it('ignores days before the hire date and after separation', () => {
     const marks = absencesToMark({
       ...base,

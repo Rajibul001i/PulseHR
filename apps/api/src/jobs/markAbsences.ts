@@ -10,7 +10,7 @@
  */
 
 import { pathToFileURL } from 'node:url';
-import { absencesToMark, addDays, businessDate } from '@pulsehr/core';
+import { absencesToMark, addDays, businessDate, isShiftWorkDay } from '@pulsehr/core';
 import { all, nowIso, openDb, run, uuid } from '../db.js';
 import { Repo } from '../repo.js';
 import { registerHandler } from './queue.js';
@@ -49,7 +49,21 @@ export async function markAbsences(organisationId: string, userId: string, asOf?
       from,
       to,
     );
+    // Working days follow the employee's shift on each date (a shift may work the weekend).
+    const assignments = await all(
+      `SELECT a.effective_from, s.work_days FROM shift_assignment a JOIN shift s ON s.id = a.shift_id
+        WHERE a.employee_id = ? ORDER BY a.effective_from`,
+      e.id,
+    );
+    const holidaySet = new Set(holidays);
+    const isWorkingDay = (d: string): boolean => {
+      if (holidaySet.has(d)) return false;
+      const current = assignments.filter((a) => String(a.effective_from) <= d).at(-1);
+      const workDays = current?.work_days ? String(current.work_days).split(',').map(Number) : null;
+      return isShiftWorkDay(d, current ? { workDays } : null, weekendDays);
+    };
     const marks = absencesToMark({
+      isWorkingDay,
       from,
       to,
       hireDate: String(e.hire_date),

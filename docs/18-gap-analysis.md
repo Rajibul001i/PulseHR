@@ -1,9 +1,9 @@
 # 18 · Gap Analysis — Report & Deck vs. Repository
 
 Checked on 24 Sep 2026: every claim in *PulseHR_Project_Report* and *PulseHR_Report_Presentation*
-against the code on `master` (b7898e7). After the gaps below were closed: 122/122 unit tests,
-typecheck clean, 30/30 smoke and 108 bug-hunt checks with 0 defects, on SQLite and on
-PostgreSQL 16.
+against the code on `master` (b7898e7). After the gaps below were closed, and shifts and
+attendance corrections were added: 130/130 unit tests, typecheck clean, 30/30 smoke and 137
+bug-hunt checks with 0 defects, on SQLite and on PostgreSQL 16.
 
 ## Fixed in this pass
 
@@ -66,10 +66,11 @@ but none of those checks exists yet.
 
 ## What the report and deck need to say now
 
-- **Screens:** 14, not 13. Add **People** (HR only): employee directory, add, edit, salary, separation, departments.
-- **Unit tests:** 122, not 107 (15 new: 8 bias audit, 7 absence marking).
-- **Regression checks:** 108, not 64 (the 7 AI-assistant checks were removed; 51 gap-closure checks were added).
-- **Migrations and tables:** 13 forward-only migrations and 33 tables (added `key_result_update` and `bias_audit_report`).
+- **Screens:** 15, not 13. Add **People** (HR: employee directory, add, edit, salary, separation, departments) and **Shifts** (managers and HR: shift definitions and who works which shift).
+- **Unit tests:** 130, not 107 (23 new: 8 bias audit, 8 absence marking, 7 shift rules).
+- **Regression checks:** 137, not 64 (the 7 AI-assistant checks were removed; 51 gap-closure and 29 shift and correction checks were added).
+- **Migrations and tables:** 14 forward-only migrations and 36 tables (added `key_result_update`, `bias_audit_report`, `shift`, `shift_assignment`, `attendance_correction`).
+- **F3 Attendance:** lateness is measured from each employee's own shift after a grace period; night shifts count on the day they start; overtime is worked hours past 8, after the unpaid break. Employees see their duty time and a 14-day roster, and can ask for a correction; managers and HR approve it or fix a record directly. Every correction keeps the values it replaced, and a month whose payroll is issued cannot be changed.
 - **Section 5.4.1:** remove the explain-only AI assistant; it was taken out of the product.
 - **Section 5.4.2 version control:** feature work merges into `master`; there is no `develop` branch.
 - **Section 5.1.5 NFR table:** eight NFRs name a verification that does not exist yet (list above). Either mark them "planned" or add the checks.

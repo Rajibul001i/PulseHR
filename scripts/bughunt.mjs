@@ -1105,6 +1105,111 @@ const newToken = newLogin.body?.accessToken;
 }
 
 /* ---------------------------------------------------------------------- */
+console.log('\nShifts, duty times and attendance corrections');
+{
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Dhaka' }).format(new Date());
+  const addD = (date, n) => {
+    const d = new Date(`${date}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() + n);
+    return d.toISOString().slice(0, 10);
+  };
+  const dow = (date) => new Date(`${date}T00:00:00Z`).getUTCDay();
+  const tag = Date.now().toString(36).slice(-4);
+  const nusrat = (await login('nusrat.jahan@meridian.test')).body;
+  const sumaiyaId = (await call('/employees?q=sumaiya', { token: hrA.accessToken })).body?.[0]?.id;
+
+  // Shift definitions (HR)
+  const created = await call('/shifts', { method: 'POST', token: hrA.accessToken, body: { name: `Evening ${tag}`, startTime: '14:00', endTime: '22:00', breakMinutes: 30, graceMinutes: 5 } });
+  expect('SHIFT-01', 'Shifts', 'HR defines a shift', created.status === 201, `got ${created.status}`);
+  const dup = await call('/shifts', { method: 'POST', token: hrA.accessToken, body: { name: `evening ${tag}`, startTime: '14:00', endTime: '22:00' } });
+  expect('SHIFT-01', 'Shifts', 'A duplicate shift name is refused', dup.status === 409, `got ${dup.status}`);
+  const same = await call('/shifts', { method: 'POST', token: hrA.accessToken, body: { name: `Zero ${tag}`, startTime: '09:00', endTime: '09:00' } });
+  expect('SHIFT-01', 'Shifts', 'A shift that starts and ends at the same time is refused', same.status === 400, `got ${same.status}`);
+  const asMgr = await call('/shifts', { method: 'POST', token: mgr.accessToken, body: { name: `M ${tag}`, startTime: '09:00', endTime: '17:00' } });
+  expect('SHIFT-01', 'Shifts', 'A MANAGER cannot define shifts', asMgr.status === 403, `got ${asMgr.status}`);
+
+  // Duty time for the employee
+  const mine = await call('/me/shift', { token: nusrat.accessToken });
+  const friday = (mine.body?.roster ?? []).find((d) => dow(d.date) === 5);
+  expect('SHIFT-02', 'Duty time', "An employee sees today's shift and a 14-day roster", mine.status === 200 && mine.body?.today?.name === 'General' && mine.body?.roster?.length === 14, `got ${mine.status} ${mine.body?.today?.name}`);
+  expect('SHIFT-02', 'Duty time', 'Friday shows as a day off on the General shift', friday?.status === 'OFF', `got ${friday?.status}`);
+
+  // Assignment
+  const tomorrow = addD(today, 1);
+  const assign = await call('/shifts/assign', { method: 'POST', token: mgr.accessToken, body: { employeeIds: [nusrat.user.employeeId], shiftId: created.body?.id, effectiveFrom: tomorrow } });
+  expect('SHIFT-03', 'Shifts', 'A manager assigns a shift to someone in their department from tomorrow', assign.status === 200, `got ${assign.status} ${JSON.stringify(assign.body)}`);
+  const after = await call('/me/shift', { token: nusrat.accessToken });
+  const t0 = after.body?.roster?.[0]?.shift?.name;
+  const t1 = after.body?.roster?.[1]?.shift?.name;
+  expect('SHIFT-03', 'Shifts', 'The roster keeps today on the old shift and switches from tomorrow', t0 === 'General' && t1 === `Evening ${tag}`, `today ${t0}, tomorrow ${t1}`);
+  const past = await call('/shifts/assign', { method: 'POST', token: hrA.accessToken, body: { employeeIds: [nusrat.user.employeeId], shiftId: created.body?.id, effectiveFrom: addD(today, -3) } });
+  expect('SHIFT-03', 'Shifts', 'A shift change cannot be backdated', past.status === 400, `got ${past.status}`);
+  const outside = await call('/shifts/assign', { method: 'POST', token: mgr.accessToken, body: { employeeIds: [sumaiyaId], shiftId: created.body?.id, effectiveFrom: tomorrow } });
+  expect('SHIFT-03', 'Shifts', 'A manager cannot assign shifts outside their department', outside.status === 403, `got ${outside.status}`);
+  const notes = await call('/notifications', { token: nusrat.accessToken });
+  expect('SHIFT-03', 'Shifts', 'The employee is notified of the new shift', (notes.body ?? []).some((n) => n.type === 'SHIFT_ASSIGNED'), `got ${notes.body?.length}`);
+
+  // Corrections: the most recent working day this month (a month not yet paid)
+  let day = addD(today, -1);
+  while ([5, 6].includes(dow(day))) day = addD(day, -1);
+  let day2 = addD(day, -1);
+  while ([5, 6].includes(dow(day2))) day2 = addD(day2, -1);
+  if (day.slice(0, 7) !== today.slice(0, 7) || day2.slice(0, 7) !== today.slice(0, 7)) {
+    console.log('  skip  CORR-*  too early in the month for two unpaid working days');
+  } else {
+    // Clear the seeded pending request for that day so this run controls its own data.
+    const seeded = (await call('/attendance/corrections?status=PENDING', { token: hrA.accessToken })).body ?? [];
+    for (const c of seeded.filter((r) => r.employee_id === nusrat.user.employeeId)) {
+      await call(`/attendance/corrections/${c.id}/decision`, { method: 'POST', token: hrA.accessToken, body: { decision: 'REJECT', reason: 'Superseded by test' } });
+    }
+    const req1 = await call('/attendance/corrections', { method: 'POST', token: nusrat.accessToken, body: { workDate: day, checkIn: '09:05', checkOut: '17:40', reason: 'Card reader was down in the morning' } });
+    expect('CORR-01', 'Corrections', 'An employee requests a correction; it waits for approval', req1.status === 201 && req1.body?.status === 'PENDING', `got ${req1.status} ${JSON.stringify(req1.body)}`);
+    const again = await call('/attendance/corrections', { method: 'POST', token: nusrat.accessToken, body: { workDate: day, checkIn: '09:00', checkOut: '17:00', reason: 'Asking twice for the same day' } });
+    expect('CORR-01', 'Corrections', 'Only one pending request per day', again.status === 409, `got ${again.status}`);
+    const hrNotes = await call('/notifications', { token: hrA.accessToken });
+    expect('CORR-01', 'Corrections', 'The approver is notified', (hrNotes.body ?? []).some((n) => n.type === 'CORRECTION_PENDING'), `got ${hrNotes.body?.length}`);
+    const queue = await call('/attendance/corrections?status=PENDING', { token: mgr.accessToken });
+    expect('CORR-01', 'Corrections', "The manager sees the request in their department's queue", (queue.body ?? []).some((c) => c.id === req1.body?.id), `got ${queue.body?.length}`);
+    const byEmp = await call(`/attendance/corrections/${req1.body?.id}/decision`, { method: 'POST', token: emp.accessToken, body: { decision: 'APPROVE' } });
+    expect('CORR-01', 'Corrections', 'An EMPLOYEE cannot approve corrections', byEmp.status === 403, `got ${byEmp.status}`);
+    const crossTenant = await call(`/attendance/corrections/${req1.body?.id}/decision`, { method: 'POST', token: hrB.accessToken, body: { decision: 'APPROVE' } });
+    expect('CORR-01', 'NFR-14', "Another tenant's HR cannot decide this request", crossTenant.status === 404, `got ${crossTenant.status}`);
+    const ok = await call(`/attendance/corrections/${req1.body?.id}/decision`, { method: 'POST', token: mgr.accessToken, body: { decision: 'APPROVE' } });
+    const grid = await call(`/attendance/grid?from=${day}&to=${day}`, { token: mgr.accessToken });
+    const row = (grid.body ?? []).find((r) => r.employee_id === nusrat.user.employeeId);
+    expect('CORR-01', 'Corrections', 'Approval rewrites the record: check-in and check-out as corrected', ok.status === 200 && row?.check_in?.endsWith('03:05:00.000Z') && row?.check_out?.endsWith('11:40:00.000Z'), `status ${ok.status}, row ${JSON.stringify(row)}`);
+    expect('CORR-01', 'Corrections', 'Lateness is re-measured against the shift (09:05 is inside the 10-minute grace)', row?.late_minutes === 0 && row?.status === 'PRESENT', `late ${row?.late_minutes}`);
+    const history = (await call('/attendance/corrections?mine=1', { token: nusrat.accessToken })).body ?? [];
+    const decided = history.find((c) => c.id === req1.body?.id);
+    expect('CORR-01', 'Corrections', 'The previous values are kept on the correction', decided?.status === 'APPROVED' && decided?.previous_check_in !== undefined, JSON.stringify(decided));
+    const twice = await call(`/attendance/corrections/${req1.body?.id}/decision`, { method: 'POST', token: mgr.accessToken, body: { decision: 'APPROVE' } });
+    expect('CORR-01', 'Corrections', 'A decided request cannot be decided again', twice.status === 409, `got ${twice.status}`);
+
+    const req2 = await call('/attendance/corrections', { method: 'POST', token: nusrat.accessToken, body: { workDate: day2, checkIn: '08:00', checkOut: '20:00', reason: 'Please add overtime for this day' } });
+    const noReason = await call(`/attendance/corrections/${req2.body?.id}/decision`, { method: 'POST', token: mgr.accessToken, body: { decision: 'REJECT' } });
+    expect('CORR-02', 'Corrections', 'A rejection needs a reason', noReason.status === 400, `got ${noReason.status}`);
+    const rej = await call(`/attendance/corrections/${req2.body?.id}/decision`, { method: 'POST', token: mgr.accessToken, body: { decision: 'REJECT', reason: 'Badge log shows 09:00 to 17:00' } });
+    expect('CORR-02', 'Corrections', 'A manager rejects a request with a reason; the record is unchanged', rej.status === 200, `got ${rej.status}`);
+
+    const direct = await call('/attendance/corrections', { method: 'POST', token: mgr.accessToken, body: { employeeId: nusrat.user.employeeId, workDate: day2, checkIn: '09:00', checkOut: '19:30', reason: 'Stayed late for the release, confirmed' } });
+    const grid2 = await call(`/attendance/grid?from=${day2}&to=${day2}`, { token: mgr.accessToken });
+    const row2 = (grid2.body ?? []).find((r) => r.employee_id === nusrat.user.employeeId);
+    expect('CORR-03', 'Corrections', 'A manager fixes a record directly; it applies at once', direct.status === 201 && direct.body?.status === 'APPROVED', `got ${direct.status} ${JSON.stringify(direct.body)}`);
+    expect('CORR-03', 'Corrections §108', 'Overtime is worked hours past 8, after the 1-hour break (09:00–19:30 → 1.5 h)', row2?.ot_hours === 1.5, `got ${row2?.ot_hours}`);
+    const otherDept = await call('/attendance/corrections', { method: 'POST', token: mgr.accessToken, body: { employeeId: sumaiyaId, workDate: day2, checkIn: '09:00', checkOut: '17:00', reason: 'Not my department' } });
+    expect('CORR-03', 'Corrections', "A manager cannot fix attendance outside their department", otherDept.status === 403, `got ${otherDept.status}`);
+    const own = await call('/attendance/corrections', { method: 'POST', token: mgr.accessToken, body: { workDate: day2, checkIn: '09:00', checkOut: '17:00', reason: 'My own record needs fixing' } });
+    const mgrQueue = (await call('/attendance/corrections?status=PENDING', { token: mgr.accessToken })).body ?? [];
+    expect('CORR-03', 'Corrections', "A manager's own correction waits for someone else to approve it", own.body?.status === 'PENDING' && !mgrQueue.some((c) => c.id === own.body?.id), `got ${JSON.stringify(own.body)}`);
+
+    const future = await call('/attendance/corrections', { method: 'POST', token: nusrat.accessToken, body: { workDate: addD(today, 2), checkIn: '09:00', checkOut: '17:00', reason: 'Correcting a future day' } });
+    expect('CORR-04', 'Corrections', 'A future date cannot be corrected', future.status === 409, `got ${future.status}`);
+    const paid = await call('/attendance/corrections', { method: 'POST', token: hrA.accessToken, body: { employeeId: emp.user.employeeId, workDate: '2026-07-15', checkIn: '09:00', checkOut: '17:00', reason: 'Fixing a paid month' } });
+    expect('CORR-04', 'Corrections P0-8', "A month whose payroll is issued is closed to corrections", paid.status === 409 && /payroll/i.test(paid.body?.error ?? ''), `got ${paid.status} ${paid.body?.error}`);
+  }
+}
+
+/* ---------------------------------------------------------------------- */
 console.log(`\n${checks} checks, ${findings.length} defects found\n`);
 for (const f of findings) {
   console.log(`${f.id}  (${f.story})  ${f.description}`);

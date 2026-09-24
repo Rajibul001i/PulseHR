@@ -8,3 +8,4 @@ export * from './subscription.js';
 export * from './billing.js';
 export * from './fairness.js';
 export * from './attendance.js';
+export * from './shift.js';

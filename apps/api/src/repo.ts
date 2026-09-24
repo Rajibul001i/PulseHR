@@ -22,6 +22,12 @@ import {
   annualGrant,
   balanceOf,
   businessDate,
+  dhakaMinutesOfDay,
+  formatHm,
+  lateMinutes,
+  overtimeHours,
+  parseHm,
+  workedHours,
   previewPlanChange,
   type AttritionResult,
   type LeaveLedgerEntry,
@@ -280,7 +286,7 @@ export class Repo {
   async attendanceGrid(from: string, to: string, scope?: { departmentId: string | null }): Promise<Row[]> {
     if (scope !== undefined) {
       return all(
-        `SELECT a.employee_id, e.full_name, a.work_date, a.status, a.late_minutes, a.ot_hours
+        `SELECT a.employee_id, e.full_name, a.work_date, a.status, a.late_minutes, a.ot_hours, a.check_in, a.check_out
            FROM attendance a
            JOIN employee e ON e.id = a.employee_id
           WHERE a.organisation_id = ? AND a.work_date BETWEEN ? AND ?
@@ -293,7 +299,7 @@ export class Repo {
       );
     }
     return all(
-      `SELECT a.employee_id, e.full_name, a.work_date, a.status, a.late_minutes, a.ot_hours
+      `SELECT a.employee_id, e.full_name, a.work_date, a.status, a.late_minutes, a.ot_hours, a.check_in, a.check_out
          FROM attendance a
          JOIN employee e ON e.id = a.employee_id
         WHERE a.organisation_id = ? AND a.work_date BETWEEN ? AND ?
@@ -480,7 +486,7 @@ export class Repo {
 
   /* --------------------------- notifications (F4.4) ------------------------ */
 
-  async notify(userId: string, type: 'LEAVE_PENDING' | 'LEAVE_DECIDED', message: string, entityType?: string, entityId?: string): Promise<void> {
+  async notify(userId: string, type: 'LEAVE_PENDING' | 'LEAVE_DECIDED' | 'CORRECTION_PENDING' | 'CORRECTION_DECIDED' | 'SHIFT_ASSIGNED', message: string, entityType?: string, entityId?: string): Promise<void> {
     await run(
       `INSERT INTO notification (id, organisation_id, user_id, type, message, entity_type, entity_id, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -1679,6 +1685,302 @@ export class Repo {
         ORDER BY (s.contest_reviewed_at IS NULL) DESC, s.contested_at DESC`,
       this.orgId,
     );
+  }
+
+  /* -------------------------------- shifts --------------------------------
+   * Duty times. Assignments are effective-dated like salary structures: the shift on any
+   * date is the latest assignment that started on or before it.
+   */
+
+  async listShifts(): Promise<Row[]> {
+    return all(
+      `SELECT s.*, (SELECT COUNT(DISTINCT a.employee_id) FROM shift_assignment a WHERE a.shift_id = s.id) AS assigned
+         FROM shift s WHERE s.organisation_id = ? ORDER BY s.start_time, s.name`,
+      this.orgId,
+    );
+  }
+
+  async getShift(id: string): Promise<Row | undefined> {
+    return one('SELECT * FROM shift WHERE id = ? AND organisation_id = ?', id, this.orgId);
+  }
+
+  async createShift(p: { name: string; startTime: string; endTime: string; breakMinutes: number; graceMinutes: number; workDays: number[] | null }): Promise<string> {
+    const id = uuid();
+    await run(
+      `INSERT INTO shift (id, organisation_id, name, start_time, end_time, break_minutes, grace_minutes, work_days, is_active, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`,
+      id,
+      this.orgId,
+      p.name,
+      p.startTime,
+      p.endTime,
+      p.breakMinutes,
+      p.graceMinutes,
+      p.workDays ? p.workDays.join(',') : null,
+      nowIso(),
+    );
+    await this.audit('CREATE_SHIFT', 'shift', id, p);
+    return id;
+  }
+
+  async updateShift(
+    id: string,
+    p: { name?: string; breakMinutes?: number; graceMinutes?: number; workDays?: number[] | null; isActive?: boolean },
+  ): Promise<boolean> {
+    if (!(await this.getShift(id))) return false;
+    await run(
+      `UPDATE shift SET name = COALESCE(?, name), break_minutes = COALESCE(?, break_minutes),
+              grace_minutes = COALESCE(?, grace_minutes),
+              work_days = CASE WHEN ? = 1 THEN ? ELSE work_days END,
+              is_active = COALESCE(?, is_active)
+        WHERE id = ? AND organisation_id = ?`,
+      p.name ?? null,
+      p.breakMinutes ?? null,
+      p.graceMinutes ?? null,
+      p.workDays !== undefined ? 1 : 0,
+      p.workDays ? p.workDays.join(',') : null,
+      p.isActive === undefined ? null : p.isActive ? 1 : 0,
+      id,
+      this.orgId,
+    );
+    await this.audit('UPDATE_SHIFT', 'shift', id, p);
+    return true;
+  }
+
+  /** The shift an employee works on a date, or undefined if none is assigned. */
+  async shiftOn(employeeId: string, date: string): Promise<Row | undefined> {
+    return one(
+      `SELECT s.*, a.effective_from FROM shift_assignment a JOIN shift s ON s.id = a.shift_id
+        WHERE a.employee_id = ? AND a.organisation_id = ? AND a.effective_from <= ?
+        ORDER BY a.effective_from DESC LIMIT 1`,
+      employeeId,
+      this.orgId,
+      date,
+    );
+  }
+
+  async shiftAssignmentsFor(employeeId: string): Promise<Row[]> {
+    return all(
+      `SELECT a.effective_from, s.id AS shift_id, s.name, s.start_time, s.end_time
+         FROM shift_assignment a JOIN shift s ON s.id = a.shift_id
+        WHERE a.employee_id = ? AND a.organisation_id = ? ORDER BY a.effective_from`,
+      employeeId,
+      this.orgId,
+    );
+  }
+
+  /** Every active employee (optionally one department) with today's shift and the next change. */
+  async shiftOverview(today: string, departmentId?: string | null): Promise<Row[]> {
+    const deptClause = departmentId === undefined ? '' : 'AND e.department_id IS NOT DISTINCT FROM ?';
+    const params: unknown[] = [today, today, this.orgId];
+    if (departmentId !== undefined) params.push(departmentId);
+    return all(
+      `SELECT e.id AS employee_id, e.full_name, e.employee_code, d.name AS department_name,
+              cur.name AS shift_name, cur.start_time, cur.end_time,
+              nxt.effective_from AS next_from, ns.name AS next_shift_name
+         FROM employee e
+         LEFT JOIN department d ON d.id = e.department_id
+         LEFT JOIN shift cur ON cur.id = (
+                SELECT a.shift_id FROM shift_assignment a
+                 WHERE a.employee_id = e.id AND a.effective_from <= ?
+                 ORDER BY a.effective_from DESC LIMIT 1)
+         LEFT JOIN shift_assignment nxt ON nxt.id = (
+                SELECT a2.id FROM shift_assignment a2
+                 WHERE a2.employee_id = e.id AND a2.effective_from > ?
+                 ORDER BY a2.effective_from LIMIT 1)
+         LEFT JOIN shift ns ON ns.id = nxt.shift_id
+        WHERE e.organisation_id = ? AND e.employment_status = 'ACTIVE' ${deptClause}
+        ORDER BY d.name, e.full_name`,
+      ...params,
+    );
+  }
+
+  async assignShift(employeeIds: string[], shiftId: string, effectiveFrom: string): Promise<void> {
+    const shift = await this.getShift(shiftId);
+    await transaction(async () => {
+      for (const employeeId of employeeIds) {
+        await run(
+          `INSERT INTO shift_assignment (id, organisation_id, employee_id, shift_id, effective_from, assigned_by, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT (employee_id, effective_from) DO UPDATE SET shift_id = excluded.shift_id, assigned_by = excluded.assigned_by`,
+          uuid(),
+          this.orgId,
+          employeeId,
+          shiftId,
+          effectiveFrom,
+          this.actorUserId,
+          nowIso(),
+        );
+        const emp = await this.getEmployee(employeeId);
+        if (emp?.user_id && shift) {
+          await this.notify(
+            String(emp.user_id),
+            'SHIFT_ASSIGNED',
+            `From ${effectiveFrom} your shift is ${shift.name} (${shift.start_time}–${shift.end_time}).`,
+            'shift',
+            shiftId,
+          );
+        }
+      }
+    });
+    await this.audit('ASSIGN_SHIFT', 'shift', shiftId, { employeeIds, effectiveFrom });
+  }
+
+  /* ------------------------ attendance corrections ------------------------ */
+
+  /** A month whose payroll has been issued is closed: its attendance can no longer change. */
+  async payrollIssuedFor(employeeId: string, workDate: string): Promise<boolean> {
+    const [y, m] = workDate.split('-').map(Number);
+    return !!(await one(
+      `SELECT id FROM payslip WHERE employee_id = ? AND period_year = ? AND period_month = ? AND adjusts_payslip_id IS NULL`,
+      employeeId,
+      y,
+      m,
+    ));
+  }
+
+  async approvedLeaveOn(employeeId: string, date: string): Promise<boolean> {
+    return !!(await one(
+      `SELECT id FROM leave_request WHERE employee_id = ? AND status = 'APPROVED' AND start_date <= ? AND end_date >= ?`,
+      employeeId,
+      date,
+      date,
+    ));
+  }
+
+  async createCorrection(p: {
+    employeeId: string;
+    workDate: string;
+    checkIn: string;
+    checkOut: string | null;
+    reason: string;
+  }): Promise<string> {
+    const id = uuid();
+    await run(
+      `INSERT INTO attendance_correction (id, organisation_id, employee_id, work_date, requested_check_in,
+                                          requested_check_out, reason, status, requested_by, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDING', ?, ?)`,
+      id,
+      this.orgId,
+      p.employeeId,
+      p.workDate,
+      p.checkIn,
+      p.checkOut,
+      p.reason,
+      this.actorUserId,
+      nowIso(),
+    );
+    await this.audit('REQUEST_ATTENDANCE_CORRECTION', 'attendance_correction', id, p);
+    return id;
+  }
+
+  async getCorrection(id: string): Promise<Row | undefined> {
+    return one('SELECT * FROM attendance_correction WHERE id = ? AND organisation_id = ?', id, this.orgId);
+  }
+
+  async listCorrections(filter: { employeeId?: string; departmentId?: string | null; status?: string }): Promise<Row[]> {
+    const clauses = ['c.organisation_id = ?'];
+    const params: unknown[] = [this.orgId];
+    if (filter.employeeId) {
+      clauses.push('c.employee_id = ?');
+      params.push(filter.employeeId);
+    }
+    if (filter.departmentId !== undefined) {
+      clauses.push('e.department_id IS NOT DISTINCT FROM ?');
+      params.push(filter.departmentId);
+    }
+    if (filter.status) {
+      clauses.push('c.status = ?');
+      params.push(filter.status);
+    }
+    return all(
+      `SELECT c.*, e.full_name, e.employee_code,
+              a.check_in AS current_check_in, a.check_out AS current_check_out, a.status AS current_status
+         FROM attendance_correction c JOIN employee e ON e.id = c.employee_id
+         LEFT JOIN attendance a ON a.employee_id = c.employee_id AND a.work_date = c.work_date
+        WHERE ${clauses.join(' AND ')}
+        ORDER BY (c.status = 'PENDING') DESC, c.created_at DESC LIMIT 200`,
+      ...params,
+    );
+  }
+
+  /**
+   * Applies a correction to the attendance record: check-in and check-out as given, lateness
+   * against the employee's shift that day, overtime past 8 worked hours. The record's previous
+   * values are stored on the correction. Call inside a transaction.
+   */
+  async applyCorrection(c: Row, decision: { status: 'APPROVED'; reason?: string }): Promise<void> {
+    const employeeId = String(c.employee_id);
+    const workDate = String(c.work_date);
+    const shift = await this.shiftOn(employeeId, workDate);
+    const checkIn = String(c.requested_check_in);
+    const checkOut = c.requested_check_out ? String(c.requested_check_out) : null;
+
+    const startMinutes = shift ? parseHm(String(shift.start_time)) : await this.officeStartMinutesFor(employeeId);
+    const grace = shift ? Number(shift.grace_minutes) : 0;
+    const nextDay = businessDate(checkIn) > workDate;
+    const late = lateMinutes(dhakaMinutesOfDay(checkIn), { startTime: formatHm(startMinutes), graceMinutes: grace }, nextDay);
+    const breakMinutes = shift ? Number(shift.break_minutes) : 0;
+    const ot = checkOut ? overtimeHours(workedHours(checkIn, checkOut, breakMinutes)) : 0;
+
+    const before = await one('SELECT * FROM attendance WHERE employee_id = ? AND work_date = ?', employeeId, workDate);
+    if (before) {
+      await run(
+        `UPDATE attendance SET check_in = ?, check_out = ?, late_minutes = ?, ot_hours = ?, status = 'PRESENT', is_unplanned = 0
+          WHERE id = ?`,
+        checkIn,
+        checkOut,
+        late,
+        ot,
+        before.id,
+      );
+    } else {
+      await run(
+        `INSERT INTO attendance (id, organisation_id, employee_id, work_date, check_in, check_out, late_minutes, ot_hours, status, is_unplanned)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'PRESENT', 0)`,
+        uuid(),
+        this.orgId,
+        employeeId,
+        workDate,
+        checkIn,
+        checkOut,
+        late,
+        ot,
+      );
+    }
+    await run(
+      `UPDATE attendance_correction
+          SET status = ?, decided_by = ?, decided_at = ?, decision_reason = ?,
+              previous_check_in = ?, previous_check_out = ?, previous_status = ?
+        WHERE id = ?`,
+      decision.status,
+      this.actorUserId,
+      nowIso(),
+      decision.reason ?? null,
+      before?.check_in ?? null,
+      before?.check_out ?? null,
+      before?.status ?? null,
+      c.id,
+    );
+    await this.audit('APPLY_ATTENDANCE_CORRECTION', 'attendance_correction', String(c.id), {
+      employeeId,
+      workDate,
+      before: before ? { checkIn: before.check_in, checkOut: before.check_out, status: before.status } : null,
+      after: { checkIn, checkOut, lateMinutes: late, otHours: ot },
+    });
+  }
+
+  async rejectCorrection(id: string, reason: string): Promise<void> {
+    await run(
+      `UPDATE attendance_correction SET status = 'REJECTED', decided_by = ?, decided_at = ?, decision_reason = ?
+        WHERE id = ? AND organisation_id = ?`,
+      this.actorUserId,
+      nowIso(),
+      reason,
+      id,
+      this.orgId,
+    );
+    await this.audit('REJECT_ATTENDANCE_CORRECTION', 'attendance_correction', id, { reason });
   }
 
   async hrAdminUserIds(): Promise<string[]> {
