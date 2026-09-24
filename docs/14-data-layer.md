@@ -7,7 +7,7 @@
 
 ---
 
-## 1. From 18 analysis classes to 24 tables
+## 1. From 18 analysis classes to 37 tables
 
 Our Requirements Model settled on **18 core analysis classes** after filtering 45 candidate
 nouns. The physical schema has more tables than that, and the difference is deliberate.
@@ -21,7 +21,14 @@ nouns. The physical schema has more tables than that, and the difference is deli
 | `AttritionRiskScore` | `attrition_score`, `attrition_contribution` | `signalBreakdown: Map` in the class model becomes a child table — a serialised map cannot be queried, and we need "which signal drives most flags?". |
 | `SalaryStructure` | `salary_structure` | Effective-dated rows rather than one mutable row. |
 | — | `organisation` | **Not in the analysis model at all.** Multi-tenancy is an architectural concern the class diagram did not capture. |
-| — | `audit_log`, `holiday`, `subscription_event`, `feature_gate_hit` | Cross-cutting concerns. |
+| — | `audit_log`, `holiday`, `subscription_event`, `feature_gate_hit`, `invoice` | Cross-cutting concerns. |
+| `User` (credentials lifecycle) | `password_reset_token`, `account_recovery` | A reset or a recovery has its own expiry, attempt count and single use; none of that belongs on the user row. Tokens and codes are stored hashed. |
+| `Employee` (documents) | `employee_document` | Many per employee, each with its own category and upload time. |
+| `Attendance` (schedule) | `shift`, `shift_assignment`, `attendance_correction` | Effective-dated like salary: a new shift takes over from its date and past lateness stays reproducible. A correction keeps the values it replaced. |
+| `Objective`, `KeyResult` | `objective`, `key_result`, `key_result_update`, `review_score` | Key-result updates are logged so the scorecard can read OKR engagement over time. |
+| `Vacancy`, `Candidate` | `vacancy`, `candidate`, `candidate_stage_event`, `candidate_evaluation` | Stage moves and evaluations are history, not overwritten fields. |
+| `Notice` | `notice`, `notice_department`, `notice_read` | Audience targeting and read tracking are many-to-many. |
+| — | `notification`, `bias_audit_report` | In-app notifications; the stored result of each quarterly bias audit. |
 
 **The lesson worth recording:** an analysis class model describes the *problem domain*. It
 is not a physical schema, and translating it one-to-one would have produced a system that
@@ -200,6 +207,21 @@ corrected by a new forward migration.
 | 001 | Core schema — 16 tables, immutability triggers |
 | 002 | Subscription columns, `subscription_event`, `feature_gate_hit`, `department.office_start_time` |
 | 003 | Partial unique index on `payslip` |
+| 004 | `password_reset_token` (F1.4, emailed link) |
+| 005 | `employee.phone`, `address`, `emergency_contact` (F2.2 self-service) |
+| 006 | `employee_document` (F2.5) |
+| 007 | `leave_request.decision_reason`, `notification` (F4.4) |
+| 008 | `objective`, `key_result`, `review_score` (F6) |
+| 009 | `vacancy`, `candidate`, `candidate_stage_event`, `candidate_evaluation` (F7) |
+| 010 | Notice audience and urgency, `notice_department`, `notice_read` (F8) |
+| 011 | `invoice` (simulated plan-change billing) |
+| 012 | `key_result.sort_order` |
+| 013 | `key_result_update`, score-contest columns, `bias_audit_report`; overlapping approved leave refused by the database (exclusion constraint on PostgreSQL, triggers on SQLite) |
+| 014 | `shift`, `shift_assignment`, `attendance_correction`; new notification types |
+| 015 | `account_recovery` (F1.4 recovery by employee ID, NID and SMS code) |
+
+Each migration exists twice, in `migrations/` (SQLite) and `migrations-postgres/`, and CI
+applies both on every change.
 
 ---
 
@@ -235,8 +257,11 @@ creates risk with no benefit.
 
 ## 10. Open items
 
-1. **PostgreSQL migration** — prototype runs on SQLite (ADR-009). Needs: RLS policies, the
-   `EXCLUDE USING gist` overlap constraint, `NUMERIC` money, `TIMESTAMPTZ`.
+1. **PostgreSQL hardening** — the PostgreSQL backend is built and tested in CI, and the
+   `EXCLUDE USING gist` overlap constraint is in (migration 013). Still open: RLS policies,
+   `NUMERIC` money and `TIMESTAMPTZ` columns (the schema still mirrors SQLite's types).
 2. **Partitioning** `attrition_score` by month at scale.
 3. **Read replica** for reporting once payroll and dashboards contend.
-4. **Column-level encryption** for `nid_hash` and bank details via KMS.
+4. **Column-level encryption** for `nid_hash` and bank details via KMS. `nid_hash` is a
+   salted hash, only the last 4 digits are readable, and since 24 Sep 2026 the hash is never
+   returned by the API (BUG-39).

@@ -127,8 +127,11 @@ Not everything fashionable is useful:
 
 ### Phase 1 — Subscription-aware shell *(the commercial gap)*
 1. `GET /api/subscription` consumed at sign-in, stored in Redux.
-2. Plan badge + seat meter in the sidebar.
-3. Locked nav items shown greyed with a lock, routing to an upgrade page.
+2. Plan badge + seat meter in the sidebar — **for HR administrators only** (changed 24 Sep
+   2026: plan and billing are HR's business; a department manager sees their department and
+   head count instead, an employee sees neither).
+3. Locked nav items shown greyed with a lock, routing to an upgrade page — for HR. Other
+   roles don't see features the organisation hasn't bought, and a 402 tells them to ask HR.
 4. Upgrade page rendering the entitlement catalogue with per-tier pitches.
 5. 402 responses render an upgrade prompt, not a generic error.
 6. Seat warning banner at 90%.

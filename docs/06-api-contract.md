@@ -122,20 +122,20 @@ flagged as a flight risk produces retaliation and self-fulfilling-prophecy harms
 
 ---
 
-## 9. Screen inventory — the 15 screens
+## 9. Screen inventory
 
 The proposal promises *"UI/UX wireframes for all 15 main screens"* but never lists them,
 so the deliverable cannot be checked off. Here they are.
 
 | # | Screen | Module | Roles | Increment | Prototype |
 |---|---|---|---|---|---|
-| 1 | Login | Auth | all | 1 | ✅ |
+| 1 | Login, and password recovery (employee ID → NID → SMS code → new password) | Auth | all | 1 | ✅ |
 | 2 | HR dashboard — at-risk list, headcount | Core | HR | 2/4 | ✅ |
 | 3 | Employee self-service dashboard | Core | EMPLOYEE | 2 | ✅ |
-| 4 | Employee directory | Core | MANAGER, HR | 2 | ✅ (API) |
-| 5 | Employee profile detail | Core | MANAGER, HR | 2 | ✅ (API) |
-| 6 | Attendance monthly grid | Attendance | MANAGER, HR | 2 | ✅ |
-| 7 | My attendance + check in/out | Attendance | all | 2 | ✅ |
+| 4 | Employee directory with type-ahead search (People) | Core | HR | 2 | ✅ |
+| 5 | Employee profile and HR management: employment, salary history, separation, NID and phone | Core | HR | 2 | ✅ |
+| 6 | Attendance monthly grid, correction queue and direct fixes | Attendance | MANAGER, HR | 2 | ✅ |
+| 7 | My attendance, duty time, 14-day roster, check in/out, correction requests | Attendance | all | 2 | ✅ |
 | 8 | Leave request form + my requests | Leave | all | 2 | ✅ |
 | 9 | Leave approval queue | Leave | MANAGER, HR | 2 | ✅ |
 | 10 | Payslip list | Payroll | all | 3 | ✅ |
@@ -143,9 +143,13 @@ so the deliverable cannot be checked off. Here they are.
 | 12 | Payroll run console | Payroll | HR | 3 | ✅ |
 | 13 | Attrition score breakdown | AI | HR | 4 | ✅ |
 | 14 | Noticeboard | Comms | all | 4 | ✅ |
-| 15 | OKR goals & review | Performance | all | 3 | ⬜ specified, not built |
-| 16 | ATS Kanban pipeline | Recruitment | HR | 3 | ⬜ specified, not built |
+| 15 | OKR goals & review | Performance | all | 3 | ✅ |
+| 16 | ATS Kanban pipeline, and the public careers page | Recruitment | HR; public | 3 | ✅ |
+| 17 | Shifts: definitions and who works which shift | Attendance | MANAGER, HR | 2 | ✅ |
+| 18 | Plan & billing | Subscription | HR | — | ✅ |
 
-> Sixteen, not fifteen — the count in the proposal was approximate. Use the real list, and
-> mark 15 and 16 as the two screens the prototype specifies but does not implement. Being
-> precise about what is *not* built is more credible than a round number.
+> The proposal promised fifteen and listed none. Eighteen are designed above, and all are
+> built. The app serves them as 15 pages (Login, Reset password, Dashboard, My profile,
+> People, Attendance, Shifts, Leave, Payslips, Noticeboard, At-risk, Plan, Performance,
+> Recruitment, Careers): the HR and employee dashboards are one page that adapts to the
+> role, and payslip list, detail and payroll run share the Payslips page.

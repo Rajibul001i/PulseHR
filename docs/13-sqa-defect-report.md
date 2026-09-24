@@ -919,3 +919,114 @@ the whole workspace — 0 errors — plus a fresh reseed, 107 unit tests, 20 smo
 including P0-7, 57 bughunt checks with 0 defects, and both job scripts run for real) to
 confirm the async conversion changed nothing observable about existing behavior, plus the
 pg-mem-backed PostgreSQL verification described above.
+
+---
+
+## 17. Addendum — 24 September 2026 — report audit, shifts, recovery and role visibility
+
+**Build under test:** `b7898e7` (start) to `7698c05` (end), on SQLite and on a real
+PostgreSQL 16 database. The final report and deck were checked claim by claim against the
+code (`docs/18-gap-analysis.md`), and every screen was driven in Chromium.
+
+| # | Severity | Defect | Fixed in |
+|---|---|---|---|
+| BUG-34 | **High** | Live demo down | `5521e03` |
+| BUG-35 | **High** | CI never ran | `5521e03`, `77ee20c` |
+| BUG-36 | **High** | 16 report claims with no code behind them | `77ee20c` |
+| BUG-37 | Medium | PostgreSQL lost the departments' office start time | `77ee20c` |
+| BUG-38 | Medium | People screen took managers from the search results | `5dcceb9` |
+| BUG-39 | **High** | The NID hash was sent with every employee record | `7698c05` |
+| BUG-40 | Medium | Plan, seats and price shown to every role | `7698c05` |
+| BUG-41 | Low | Two different defects share the number BUG-30 | this addendum |
+
+### BUG-34 — Severity: High · the live demo could not start
+
+The Render deployment depended on a free Render PostgreSQL database. Render deletes those 30
+days after creation, so from mid-September the API failed on start-up and the demo was down.
+**Fix:** `render.yaml` runs on SQLite by default (a free web service does not expire), with
+`DATABASE_URL` optional; the API also serves the built web app, so one URL is the whole
+product. **Verified:** Render deploy live on `c876d8d` and every later commit.
+
+### BUG-35 — Severity: High · CI never ran
+
+`.github/workflows/ci.yml` triggered on `main` and `develop`; the repository's branch is
+`master`. Every "CI passing" statement since August was untested. **Fix:** `master` added
+(`5521e03`), and a second job (`77ee20c`) runs the whole suite against a real PostgreSQL 16 service. **Verified:**
+both jobs green on every push since `77ee20c`.
+
+### BUG-36 — Severity: High · the report described functions the code did not have
+
+Sixteen claims in the final report had no implementation behind them: adding and editing
+employees, departments, salary history, separation, leave cancellation, absence marking,
+OKR history for the scorecard, score contests, the bias audit, department risk, the payroll
+summary, notice search, SMTP reset email, the nightly schedule, the database-level leave
+overlap constraint, and a branching claim. **Fix:** all built, each with regression checks
+(GAP-01 to GAP-15, `verify-leave-overlap.mjs`). Details in `docs/18-gap-analysis.md`.
+
+### BUG-37 — Severity: Medium · office start times missing on PostgreSQL
+
+The departments query aliased a column as `officeStartTime` without quotes. PostgreSQL
+lower-cases unquoted identifiers, so the field arrived as `officestarttime` and every
+department's office start time was blank on the Postgres deployment. SQLite keeps the case,
+which is why no test caught it. **Fix:** alias quoted. **Verified:** GAP-03 on PostgreSQL.
+
+### BUG-38 — Severity: Medium · People used the filtered list for managers
+
+On the People screen the manager drop-down and the employee opened by *Manage* were looked
+up in the current search results. After a search, a valid manager could be missing from the
+list and a selected employee could fail to open. **Fix:** both use the full employee list;
+searching only filters the table. **Verified:** in Chromium, searching then opening Manage
+and choosing a manager outside the results.
+
+### BUG-39 — Severity: High · the NID hash was sent to the browser
+
+`GET /employees`, `GET /employees/:id` and `GET /me` selected `employee.*`, so every signed-in
+user in a tenant received each colleague's `nid_hash`. A salted hash of a 10-digit number
+with a known format is open to offline guessing, and P1-4 says the NID never leaves the
+server. Present since migration 001. **Fix:** the repository strips `nid_hash` from every
+employee row it returns; only the last 4 digits are readable. **Verified:** REC-01 "The NID
+hash is never sent to the browser".
+
+### BUG-40 — Severity: Medium · plan data shown to every role
+
+`GET /subscription` returned the plan, seat count, trial end and price to every user, and
+the sidebar showed the plan card to managers and employees. Locked features linked every
+role to the Plan & billing screen. Plan and billing are the HR administrator's business
+alone. **Fix:** the API returns plan, seats and price to HR only (others get the
+organisation name and entitlements), the Plan screen redirects non-HR users, locked
+features are hidden from non-HR menus, and the upgrade prompt tells them to ask HR. A
+department manager's sidebar now shows their department and head count. **Verified:**
+VIS-01, VIS-02, and in Chromium as all three roles.
+
+### BUG-41 — Severity: Low · duplicate defect number
+
+§15 and §16 both use **BUG-30** for different defects (pricing-card layout, and `ORDER BY
+rowid`). The numbers are left as published so existing references stay valid; read the §16
+one as BUG-30b.
+
+### Caught during development, never released
+
+- `POST /api/shifts/assign` was matched by the `/api/shifts/:id` route declared before it.
+  Fixed by declaring the specific route first.
+- PostgreSQL returns `ROUND(AVG(...))` as a string, so department risk averages arrived as
+  text. Fixed with `CAST(... AS REAL)`.
+- pg-mem cannot drop a named `CHECK` constraint; the swap is removed from the pg-mem fixture
+  migrations only, and the real PostgreSQL job runs it.
+
+### New functions tested this pass
+
+- **Shifts and attendance corrections** (migration 014): 7 unit tests, 29 regression checks.
+- **Password recovery by employee ID, NID and SMS code** (migration 015): 15 regression
+  checks covering wrong answers, locking after 5 tries, the 60-second resend delay, 5
+  recoveries an hour, replay, and the NID never leaving the server.
+- **Type-ahead search and searchable pickers**: driven by keyboard and mouse in Chromium on
+  every screen that has them.
+
+### Closed since §16
+
+The `EXCLUDE USING gist` leave-overlap constraint, listed as "deliberately not done" in §16,
+is now in migration 013 (with triggers on SQLite). Row-Level Security is still open.
+
+**Re-verified:** 130 unit tests, 30 smoke checks, 157 regression checks with 0 defects, and
+the leave-overlap check, on SQLite and on PostgreSQL 16; the pg-mem migration check passes;
+typecheck clean across all workspaces.

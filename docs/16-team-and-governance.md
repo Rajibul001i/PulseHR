@@ -2,6 +2,7 @@
 
 **Owner:** Md. Rajibul Islam Rabbi — Team Lead & Backend Architect
 **Covers:** who owns what, the backend design, how we work, and increment status
+**Status as of:** 24 September 2026 (`7698c05`)
 
 ---
 
@@ -13,7 +14,7 @@ means nobody owns it.
 | Member | Role | Owns | Documentation |
 |---|---|---|---|
 | **Md. Rajibul Islam Rabbi** | Team Lead & Backend Architect | Project governance, API design, F1 authentication, worker/job architecture | This document, [`02-architecture.md`](02-architecture.md), [`06-api-contract.md`](06-api-contract.md) |
-| **Md. Rayhan Babu Emon** | Frontend UI/UX Developer | All 16 screens, React SPA, Redux state, subscription-aware shell | [`12-ui-modernisation.md`](12-ui-modernisation.md) |
+| **Md. Rayhan Babu Emon** | Frontend UI/UX Developer | All 15 screens, React SPA, Redux state, subscription-aware shell | [`12-ui-modernisation.md`](12-ui-modernisation.md) |
 | **Md. Jakariya** | Database Administrator | Schema, normalisation, indexing, migrations, query performance | [`14-data-layer.md`](14-data-layer.md), [`03-data-model.md`](03-data-model.md) |
 | **Md. Nuraafrid Rouf** | AI Algorithm & Logic Engineer | F9 attrition engine, weighting, calibration, evaluation | [`15-model-card.md`](15-model-card.md), [`05-attrition-risk-spec.md`](05-attrition-risk-spec.md) |
 | **Md. Munadujjaman** | SQA Lead & Documentation Specialist | Test strategy, defect management, UML, formal documentation | [`13-sqa-defect-report.md`](13-sqa-defect-report.md), [`07-test-plan.md`](07-test-plan.md) |
@@ -25,18 +26,21 @@ means nobody owns it.
 
 | Feature | Increment | Owner | Status |
 |---|---|---|---|
-| F1 Authentication & Roles | 1 | Rabbi | ⚠️ **4/5** — F1.4 password reset missing |
-| F2 Employee Information | 2 | Jakariya + Rayhan | 3/5 |
-| F3 Attendance | 2 | Rabbi | ✅ 5/5 |
-| F4 Leave | 2 | Rabbi + Rayhan | 4/5 |
-| F5 Payroll | 3 | Rabbi | 4/5 |
-| F6 Performance (OKR) | 3 | Rayhan | ⬜ 0/4 |
-| F7 Recruitment (ATS) | 3 | Rayhan | ⬜ 0/5 |
-| F8 Noticeboard | 3 | Rayhan | 2/4 |
-| F9 Attrition Risk | 4 | Rouf | ✅ 5/5 |
-| Subscription & entitlement | — | Rabbi | ✅ Built |
+| F1 Authentication & Roles | 1 | Rabbi | ✅ 5/5 — F1.4 password recovery by employee ID, NID and SMS code |
+| F2 Employee Information | 2 | Jakariya + Rayhan | ✅ 5/5 |
+| F3 Attendance | 2 | Rabbi | ✅ 5/5 — plus shifts, duty times and attendance corrections |
+| F4 Leave | 2 | Rabbi + Rayhan | ✅ 5/5 |
+| F5 Payroll | 3 | Rabbi | ✅ 5/5 |
+| F6 Performance (OKR) | 3 | Rayhan | ✅ 4/4 |
+| F7 Recruitment (ATS) | 3 | Rayhan | ✅ 5/5 |
+| F8 Noticeboard | 3 | Rayhan | ✅ 4/4 |
+| F9 Attrition Risk | 4 | Rouf | ✅ 5/5 — plus score contests and the quarterly bias audit |
+| Subscription & entitlement | — | Rabbi | ✅ Built; plan and billing visible to HR only |
 
-**27 of 43 functions implemented (63%).**
+**43 of 43 functions implemented (100%).** The progression — 27/43 on 10 August, 31/43 on
+12 August, 43/43 the same day — is recorded in [`13-sqa-defect-report.md`](13-sqa-defect-report.md) §5.
+The 16 report claims later found with no code behind them were built on 24 September
+([`18-gap-analysis.md`](18-gap-analysis.md)).
 
 ---
 
@@ -80,7 +84,7 @@ database, no network, no clock. Time and randomness are injected.
 
 Money and a score that affects people are the two things that must be provably correct. Pure
 functions are exhaustively testable at boundaries with no fixtures or containers — which is
-the only reason the white-box testing our SQA plan promises is actually feasible. 102 unit
+the only reason the white-box testing our SQA plan promises is actually feasible. 130 unit
 tests run in under 4 seconds, so CI can run the full suite on every PR.
 
 ### API conventions
@@ -116,10 +120,11 @@ regression suite is green, and it has been demonstrated.
 
 | Rule | |
 |---|---|
-| Branching | `feature/*` → `develop` → `main` |
-| Merge | Pull request only; no direct pushes to `develop` or `main` |
+| Branching | `feature/*` → `master`. There is no `develop` branch |
+| Merge | Pull request only; no direct pushes to `master` |
 | Review | One approval required; the Team Lead reviews anything touching payroll or auth |
-| CI | Typecheck, unit tests, build, seed, jobs, smoke, bug hunt — all must pass |
+| CI | Typecheck, unit tests, build, seed, jobs, smoke, bug hunt, leave-overlap check — on SQLite and on PostgreSQL 16, all must pass |
+| Deploy | Every push to `master` redeploys the Render demo and the GitHub Pages copy |
 
 **CI is the gate, not the review.** A reviewer approving code that does not compile is a
 normal Friday. Branch protection requires the workflow green.
@@ -134,36 +139,18 @@ its documentation updated in the same PR.
 
 ## 4. Increment status
 
-### Increment 1 — Authentication & Roles · ⚠️ **NOT CLOSED**
+All four increments are closed: every function passes its acceptance criteria and the
+regression suite is green.
 
-| Function | Status |
-|---|---|
-| F1.1 User registration | ✅ |
-| F1.2 Login / logout | ✅ Short-lived JWT + revocable refresh sessions |
-| F1.3 Role-based access control | ✅ Route + repository layer |
-| **F1.4 Password reset** | ❌ **Not implemented** |
-| F1.5 Account deactivation | ✅ Revokes all sessions |
+| Increment | Closed | Notes |
+|---|---|---|
+| 1 — Authentication & Roles | 11 Aug 2026 | F1.4 shipped as an emailed reset link. On 24 Sep it became recovery by employee ID, last 4 NID digits and an SMS code; the email link stays for accounts with no employee record |
+| 2 — Employee, Attendance, Leave | 12 Aug 2026 | F2.2 self-service contact, F2.5 documents, F4.4 notifications. On 24 Sep: HR add/edit employees, departments, salary history, separation, leave cancellation, absence marking, shifts and attendance corrections |
+| 3 — Payroll, OKR, ATS, Noticeboard | 12 Aug 2026 | F5.3 generated PDF. On 24 Sep: payroll by department, notice search |
+| 4 — Attrition Risk | 12 Aug 2026 | On 24 Sep: score contests, quarterly bias audit, department risk view |
 
-**Increment 1 cannot be signed off.** Under the Incremental Model an increment is done when
-*all* its functions pass. F1.4 has not been built. Recording this rather than quietly
-carrying it forward is the discipline the model requires — and it is a one-day task.
-
-**Action:** Rabbi to implement F1.4 before Increment 3 review.
-
-### Increment 2 — Employee, Attendance, Leave · Substantially complete
-
-Gaps: F2.2 employee self-service contact update, F2.5 document storage, F4.4 in-app
-notifications.
-
-### Increment 3 — Payroll, OKR, ATS, Noticeboard · In progress
-
-Payroll ✅ (F5.3 currently print-to-PDF rather than generated PDF). OKR and ATS not started —
-these are the declared **cut line** if the schedule slips.
-
-### Increment 4 — Attrition Risk · Complete
-
-All five functions built, 22 unit tests. Outstanding: the employee-facing score request /
-contest endpoint and the quarterly bias audit, both specified.
+**Verification today:** 130 unit tests, 30 smoke checks, 157 regression checks with 0
+defects, on SQLite and PostgreSQL 16 (see [`07-test-plan.md`](07-test-plan.md)).
 
 ---
 
@@ -174,7 +161,7 @@ Top three by exposure, from [`09-risk-register.md`](09-risk-register.md):
 | Risk | Position |
 |---|---|
 | **AI module has no labelled training data** | **Mitigated by design** — expert scorecard with a written promotion criterion. The project's biggest weakness became its most defensible decision. |
-| **Scope: 6 modules, 8 weeks, 5 part-time developers** | **Live.** 63% of functions built. OKR and ATS are the agreed cut line — decide *before* week 6, not during it. |
+| **Scope: 6 modules, 8 weeks, 5 part-time developers** | **Closed.** All 43 functions built; OKR and ATS, the agreed cut line, shipped in full. |
 | **Statutory figures wrong in the payroll engine** | **Mitigated structurally** — every Labour Act value is configuration, not code. **Still requires one member to verify each figure against the consolidated Act before submission.** |
 
 ---

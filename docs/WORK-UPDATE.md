@@ -6,6 +6,25 @@ as a changelog.
 
 ---
 
+## Session 10 — 24 September 2026
+
+### Documentation and test reports brought up to date
+
+A pass over every document for statements the code no longer matches.
+
+| Document | What was stale | Now |
+|---|---|---|
+| `07-test-plan.md` | 86 unit tests; no regression suite; CI listed as five steps | 130 unit tests with all nine files; the 157-check regression suite by section; both CI jobs (SQLite and PostgreSQL 16); traceability for shifts, corrections, recovery and plan visibility |
+| `13-sqa-defect-report.md` | Stopped at 15 August | §17: BUG-34 to BUG-41 (demo down, CI never ran, 16 unbacked report claims, PostgreSQL alias, People lookups, NID hash exposed, plan data to every role, duplicate BUG-30), plus defects caught before release |
+| `16-team-and-governance.md` | 27/43 functions, F1.4 missing, Increment 1 not closed, `develop` branch | 43/43, all increments closed, `master` flow, CI and deploy rules |
+| `14-data-layer.md` | 24 tables, migrations 001–003 | 37 tables, migrations 001–015, updated open items |
+| `03-data-model.md` | Entity map of the first 16 tables; OKR and ATS "not built" | All 37 tables |
+| `06-api-contract.md` | OKR and ATS screens "not built" | 18 designed screens, all built, served as 15 pages |
+| `12-ui-modernisation.md` | Plan badge for every role | HR only |
+| `18-gap-analysis.md` | Said a tax slab table exists | It doesn't; income tax is out of MVP scope |
+
+---
+
 ## Session 9 — 24 September 2026
 
 ### Who sees the plan card, and password recovery by employee ID

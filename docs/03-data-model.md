@@ -23,23 +23,40 @@ Six advertised modules need roughly twenty-four. The four critical omissions:
 
 ## 2. Entity map
 
+All 37 tables, as built (migrations 001–015).
+
 ```
 organisation ─┬─< department ──< employee
-              ├─< app_user ──< session
-              └─< holiday
+              ├─< app_user ─┬─< session
+              │             ├─< password_reset_token   (hashed, 30 min, single use)
+              │             └─< account_recovery       (employee ID → NID → SMS code; hashed, 5 tries per step)
+              ├─< holiday
+              ├─< shift ──< shift_assignment >── employee   (effective-dated)
+              ├─< subscription_event, feature_gate_hit, invoice
+              ├─< notice ─┬─< notice_department
+              │           └─< notice_read
+              ├─< vacancy ──< candidate ─┬─< candidate_stage_event
+              │                          └─< candidate_evaluation
+              └─< bias_audit_report                 (quarterly, spec §9)
 
-employee ─┬─< salary_structure     (effective-dated, never overwritten)
-          ├─< attendance           (unique per employee per business date)
+employee ─┬─< salary_structure       (effective-dated, never overwritten)
+          ├─< attendance             (unique per employee per business date)
+          ├─< attendance_correction  (keeps the values it replaced)
           ├─< leave_request ──< leave_ledger
-          ├─< payslip ──< payslip_line       (immutable)
-          └─< attrition_score ──< attrition_contribution
+          ├─< payslip ──< payslip_line         (immutable)
+          ├─< attrition_score ──< attrition_contribution
+          ├─< objective ──< key_result ──< key_result_update
+          ├─< review_score
+          ├─< employee_document
+          └─< notification
 
 audit_log   (every write; every attrition-score view)
 ```
 
-Deferred to Increment 3 and specified but not built in the prototype:
-`okr_objective`, `okr_key_result`, `review_cycle`, `review_score`, `job_requisition`,
-`candidate`, `application`, `application_stage_event`, `notice_receipt`, `tax_slab`.
+The employee row holds `nid_hash` (salted) and `nid_last4`, never the NID itself, and a
+`phone` used for the recovery code. The hash is never returned by the API.
+
+Still specified but not built: `tax_slab` (income tax / TDS is deferred).
 
 ## 3. Production PostgreSQL DDL — the parts that differ from the prototype
 

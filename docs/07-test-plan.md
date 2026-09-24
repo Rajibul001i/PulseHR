@@ -11,15 +11,15 @@ stay. What is missing is what each level actually *runs*, and an automated gate.
 
 | Level | Technique | Where | Status in prototype |
 |---|---|---|---|
-| **Unit** | White-box | `packages/core/test/` | ✅ **86 tests passing** |
+| **Unit** | White-box | `packages/core/test/` | ✅ **130 tests passing** |
 | **Integration** | Grey-box | `scripts/smoke.mjs` | ✅ **30 checks passing** |
-| **System** | Black-box | End-to-end flows via the API | ✅ covered by smoke |
-| **Acceptance** | Scenario | HR-manager scenarios per increment | Increment 2 onward |
-| **Regression** | Automated | Full suite in CI on every PR | ✅ `.github/workflows/ci.yml` |
+| **System** | Black-box | End-to-end flows via the API | ✅ covered by smoke and the regression suite |
+| **Acceptance** | Scenario | HR-manager scenarios per increment | Increment 2 onward; each screen also driven in Chromium (Playwright) |
+| **Regression** | Automated | `scripts/bughunt.mjs`, **157 checks**, in CI on every push and PR, on SQLite and PostgreSQL 16 | ✅ `.github/workflows/ci.yml` |
 | **Performance** | Load | Seeded volume benchmarks | Increment 4 |
 | **Security** | Black + white | Authn/authz, injection, tenancy | ✅ partly in smoke |
 
-## 2. Unit tests — white-box (86 passing)
+## 2. Unit tests — white-box (130 passing)
 
 The proposal promises boundary testing of the payroll engine and risk scorer. Here is what
 is actually asserted.
@@ -74,6 +74,16 @@ Boundaries from [`04-payroll-spec.md`](04-payroll-spec.md) §10:
 - The 18:00 UTC boundary, exactly
 - **Friday and Saturday are the weekend; Sunday is a working day**
 
+### The other five files — 44 tests
+
+| File | Tests | What it pins down |
+|---|---|---|
+| `subscription.test.ts` | 16 | Entitlement matrix per tier, seat accounting, trial expiry |
+| `fairness.test.ts` | 8 | Quarterly bias audit: flag rates by gender and department, the 80% rule, small groups not reported |
+| `attendance.test.ts` | 8 | Absence marking: no check-in and no approved leave on a working day; weekends, holidays and non-shift days excluded |
+| `shift.test.ts` | 7 | Lateness against the employee's own shift after the grace period; night shifts count on the day they start; overtime is hours past 8 after the unpaid break (§100, §108) |
+| `billing.test.ts` | 5 | Plan-change proration and invoice totals |
+
 ## 3. Integration & system tests — 30 checks
 
 `scripts/smoke.mjs`, run against a live API. Each maps to a defect from the review:
@@ -88,7 +98,23 @@ Boundaries from [`04-payroll-spec.md`](04-payroll-spec.md) §10:
 | **P1-19 sessions** | Refresh token single-use; reuse rejected; **logout revokes immediately** |
 
 Separately verified at the database level: `UPDATE payslip` and `UPDATE payslip_line` are
-both rejected by trigger, and the row is unchanged afterwards.
+both rejected by trigger, and the row is unchanged afterwards. `scripts/verify-leave-overlap.mjs`
+proves the database itself refuses overlapping approved leave (an exclusion constraint on
+PostgreSQL, triggers on SQLite).
+
+## 3a. Regression suite — 157 checks
+
+`scripts/bughunt.mjs`, run against a freshly seeded API. Every defect ever found and every
+function closed since has a check here, so nothing fixed can quietly break again. CI fails
+unless it prints `0 defects found`.
+
+| Section | Checks | Covers |
+|---|---|---|
+| SQA defects BUG-01 to BUG-33 | 57 | The adversarial black-box findings in `docs/13-sqa-defect-report.md` |
+| Gap closure GAP-01 to GAP-15 | 51 | Report claims built on 24 Sep 2026: add/edit employees, departments, salary history, separation, leave cancellation, absence marking, OKR history, score contests, bias audit, department risk, payroll summary, notice search |
+| Shifts and corrections SHIFT-, CORR- | 29 | Shift definitions and assignment, duty time and roster, lateness and overtime by shift, correction requests, approval, direct fixes, department scope, closed payroll months |
+| Password recovery REC-01 to REC-06 | 15 | Employee ID → last 4 NID digits → SMS code → new password; wrong tries, locking, resend delay, hourly limit, replay; NID stored as hash + last 4 and never returned |
+| Plan visibility VIS-01, VIS-02 | 5 | Plan, seats and price reach HR only; a manager sees their department's name and size; employees are refused |
 
 ## 4. Performance testing — a real load model
 
@@ -131,15 +157,23 @@ row counts.)*
 The proposal requires code-review approval before merge, but nothing runs the tests. A
 reviewer approving code that does not compile is a normal Friday.
 
-`.github/workflows/ci.yml` runs on every PR:
+`.github/workflows/ci.yml` runs on every push to `master` and every PR, as two jobs.
 
+**SQLite job**
 1. `npm ci`
 2. `npm run typecheck` — TypeScript strict across all three workspaces
-3. `npm test` — the 86 unit tests
+3. `npm test` — the 130 unit tests
 4. `npm run build` — the frontend must build
-5. `npm audit --audit-level=high`
+5. Seed, run the worker jobs (payroll, scoring, absences), start the API
+6. `scripts/smoke.mjs` — 30 checks
+7. `scripts/bughunt.mjs` — 157 checks, must print `0 defects found`
+8. `scripts/verify-leave-overlap.mjs`
+9. `npm audit --audit-level=high`
 
-Branch protection requires all five green. **That** is a gate; a policy is not.
+**PostgreSQL 16 job** — steps 5 to 8 again against a real PostgreSQL service, so both
+database backends are proven on every change.
+
+Branch protection requires both jobs green. **That** is a gate; a policy is not.
 
 ## 7. Acceptance criteria per increment
 
@@ -166,3 +200,10 @@ No increment is released until:
 | P1-17 score range | `attrition.test.ts` "is an integer 0-100" |
 | P1-19 revocation | smoke "logout revokes the refresh token immediately" |
 | P0-5 tenancy | smoke "org B cannot read an org A employee by direct id" |
+| F1.4 password recovery | bughunt REC-02 to REC-06 |
+| P1-4 NID never exposed | bughunt REC-01 "The NID hash is never sent to the browser" |
+| Plan data for HR only | bughunt VIS-01, VIS-02 |
+| F3 shifts, lateness, overtime | `shift.test.ts`; bughunt SHIFT-01 to SHIFT-03 |
+| F3 attendance corrections | bughunt CORR-01 to CORR-04 |
+| F3.3 absence marking | `attendance.test.ts`; bughunt GAP-10 |
+| Bias audit (spec §9) | `fairness.test.ts`; bughunt GAP-13 |

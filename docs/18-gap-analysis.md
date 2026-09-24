@@ -45,7 +45,7 @@ every department's office start time was missing on the live Postgres demo.
 
 ## Deferred, and the report already says so
 
-- Income tax / TDS (the slab table exists, but there's no calculation)
+- Income tax / TDS: no slab table and no calculation (out of MVP scope, `docs/04-payroll-spec.md` §6)
 - Responsive layout for Manager/HR (Employee already works on mobile)
 - Sortable/filterable tables, a formal WCAG 2.1 AA audit, Bangla localization
 - A real payment gateway (billing is simulated)
@@ -61,7 +61,7 @@ but none of those checks exists yet.
 
 - DFD level 1: the report says five processes and six data stores. Deck slide 40 says four
   processes and four data stores.
-- `docs/06-api-contract.md` lists 16 screens. The report lists 13; the app now has 14 (People was added).
+- `docs/06-api-contract.md` lists 16 screens. The report lists 13; the app now has 15 (People and Shifts were added).
 - WORK-UPDATE Session 5 quotes 20 smoke checks. The script has 30.
 
 ## What the report and deck need to say now
