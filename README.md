@@ -9,7 +9,8 @@ Predictive Human Resource Information System — groundwork and working prototyp
 **Live demo:** https://rajibul001i.github.io/PulseHR/app/ — sign in with any account from the
 [Quick start](#quick-start) below. Backend on Render's free tier: the first request after a
 period of inactivity takes ~30-60s to wake up, and the database reseeds deterministically on
-every restart, so demo data is always fresh, never stale or corrupted.
+every restart, so demo data is always fresh, never stale or corrupted. See
+[Live demo hosting](#live-demo-hosting) if it is down.
 **Prototype picker:** https://rajibul001i.github.io/PulseHR/ — three exploratory variants of
 the attrition-risk score view (see `/prototype` skill), not yet promoted into the app above.
 
@@ -30,13 +31,19 @@ Everything below has been executed on this machine, not just written.
 
 ```bash
 npm install
-npm test          # 86 unit tests
+npm test          # 107 unit tests
 npm run seed      # 2 organisations, 26 employees, 4,706 attendance rows
 npm run job:score # nightly attrition batch
 npm run job:payroll -- 2026 7
 ```
 
-Then, in two terminals:
+Or run the whole thing — web app and API on one URL, http://localhost:4000 — with one command:
+
+```bash
+npm run demo      # build, seed, score, run last month's payroll, serve
+```
+
+For development with hot reload, use two terminals instead:
 
 ```bash
 npm run dev:api   # http://localhost:4000
@@ -55,16 +62,18 @@ Sign in as `hr@meridian.test` / `Passw0rd!`.
 | `farhana.akter@meridian.test` | Employee — own attendance, leave, payslips |
 | `hr@bengal.test` | HR Admin of a **second tenant** — proves isolation |
 
-Requires **Node 24+** (for the built-in `node:sqlite`). No database install, no Docker.
+Requires **Node 24+** (for the built-in `node:sqlite`; Node 22.13+ also works). No database
+install, no Docker.
 
 ## Verification status
 
 | Check | Result |
 |---|---|
-| `npm test` | **86 / 86 passing** |
+| `npm test` | **107 / 107 passing** |
 | `npx tsc -b` | **clean**, TypeScript strict across 3 workspaces |
 | `npm run build` | frontend builds, 214 kB (70 kB gzipped) |
 | `node scripts/smoke.mjs` | **30 / 30 passing** against a live API |
+| `node scripts/bughunt.mjs` | **64 checks, 0 defects** (run on a fresh seed) |
 | Payslip immutability trigger | verified — `UPDATE` rejected at the database level |
 
 ## Documentation
@@ -82,6 +91,7 @@ Requires **Node 24+** (for the built-in `node:sqlite`). No database install, no 
 | [08 · Business Model](docs/08-business-model-corrections.md) | Corrected unit economics and pricing |
 | [09 · Risk Register](docs/09-risk-register.md) | Live and closed risks by exposure |
 | [10 · Proposal Patches](docs/10-proposal-patches.md) | Ready-to-paste replacement text |
+| [18 · Gap Analysis](docs/18-gap-analysis.md) | What the report claims vs. what the code does |
 
 ## The nine blocking defects
 
@@ -105,10 +115,12 @@ demonstrates the difference.
 
 ```
 packages/core/     Pure domain logic — money, dates, leave, payroll, attrition.
-                   No I/O, no clock, no database. 86 tests.
+                   No I/O, no clock, no database. 107 tests.
 apps/api/          Express API + worker jobs + migrations + seeder.
 apps/web/          React 18 SPA (Vite, Redux Toolkit).
 scripts/smoke.mjs  30 end-to-end checks, each mapped to a defect.
+scripts/bughunt.mjs 64 regression checks for every SQA defect found so far.
+scripts/demo.mjs   One-command demo: seed, score, payroll, serve web + API.
 tools/             fix_deck_numbering.py — repairs the deck's slide numbers.
 docs/              Groundwork.
 ```
@@ -128,10 +140,26 @@ docs/              Groundwork.
 - **SQLite for the prototype, PostgreSQL for production** (ADR-009). The trade-offs are
   documented, not hand-waved.
 
+## Live demo hosting
+
+The demo backend is one free Render web service defined in `render.yaml`. It used to depend
+on a free Render PostgreSQL database, which Render deletes 30 days after creation — when that
+happened (mid-September 2026) the API could no longer start. It now runs on SQLite by default,
+which needs no database service and never expires. To bring the live demo back:
+
+1. Render dashboard → the `pulsehr-api` service → **Environment** → delete `DATABASE_URL`
+   (it points at the deleted database).
+2. **Settings** → set Build Command to `npm install && npm run build` and Start Command to
+   `node scripts/demo.mjs` (or sync the Blueprint, which applies `render.yaml`).
+3. **Manual Deploy** → deploy the latest commit.
+
+The service URL then serves the complete app on its own, and the GitHub Pages frontend works
+again because the service keeps its URL. To use PostgreSQL, set `DATABASE_URL` to any external
+database that does not expire (for example a free Neon or Supabase instance).
+
 ## What is specified but not built
 
-Honest scope. Both are documented in `docs/` and left out of the prototype deliberately:
+Full list, checked against the report and deck: [18 · Gap Analysis](docs/18-gap-analysis.md). The deliberate one:
 
-- OKR performance module and the ATS Kanban board (screens 15–16)
 - Income tax / TDS calculation — the schema and slab table exist; the calculation needs an
   investment-declaration workflow that is a module in its own right

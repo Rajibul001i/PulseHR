@@ -7,6 +7,9 @@
  * (src/jobs/*), enqueued here and executed by the worker.
  */
 
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import cors from 'cors';
 import { z } from 'zod';
@@ -1606,6 +1609,24 @@ app.get(
     res.json(report);
   }),
 );
+
+/* ============================ web app (optional) ============================ */
+
+// Single-URL mode: when the frontend has been built (`npm run build`), serve it from this
+// same process, so one Node host runs the whole product -- no separate static host, no
+// VITE_API_BASE, no CORS. Without a build, the API behaves exactly as before. Unknown /api
+// paths still 404 as JSON; every other GET falls back to index.html for client-side routes.
+const webDist = process.env.PULSEHR_WEB_DIST ?? fileURLToPath(new URL('../../web/dist', import.meta.url));
+if (existsSync(join(webDist, 'index.html'))) {
+  app.use('/api', (_req, res) => {
+    res.status(404).json({ error: 'Not found' });
+  });
+  app.use(express.static(webDist));
+  app.get('*', (_req, res) => {
+    res.sendFile(join(webDist, 'index.html'));
+  });
+  console.log(`Serving the web app from ${webDist}`);
+}
 
 /* ================================ errors ================================== */
 

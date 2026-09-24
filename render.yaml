@@ -1,45 +1,35 @@
-# Render Blueprint — deploys the PulseHR API and its database as a live demo backend.
+# Render Blueprint — deploys the whole PulseHR live demo (web app + API) as ONE free service.
 #
-# ADR-009: SQLite is the zero-install prototype path, PostgreSQL is the production target --
-# db.ts picks between them automatically based on whether DATABASE_URL is set. This blueprint
-# provisions BOTH: the `pulsehr-db` managed Postgres instance below, wired to the API service
-# via DATABASE_URL, so the live demo runs on the real production database path, not SQLite.
+# Why no `databases:` block any more: Render's free PostgreSQL instances expire 30 days after
+# creation and are then deleted. The one this blueprint provisioned on 15 Aug 2026 did exactly
+# that, and because DATABASE_URL still pointed at it, the API could no longer start -- which
+# took the GitHub Pages demo down with it. Free *web services* do not expire, so the demo now
+# runs on the zero-install SQLite path (ADR-009) by default: the disk is ephemeral, so every
+# restart reseeds deterministic demo data, then scores attrition and runs last month's payroll
+# (scripts/demo.mjs) before the first request is served.
 #
-# Free tier caveats, both services: the web service sleeps after 15 min idle (~30-60s cold
-# start on the next request). Render's free Postgres plan has a documented expiry window
-# (historically on the order of weeks after creation, not per-restart -- check Render's
-# current pricing page for the exact figure, since this has changed before and isn't worth
-# hard-coding a number likely to go stale) -- if the live demo ever shows a database
-# connection error after a long gap, that's almost certainly why, and the fix is recreating
-# the `databases:` entry (Render provisions a fresh instance; reseed follows automatically
-# since a fresh database starts empty). Seeding itself only runs once against an empty
-# database (seed.ts's own guard) -- a real restart does NOT wipe Postgres data, unlike the
-# old SQLite-only setup this replaced, where a wipe-and-reseed on every boot was the
-# deliberate behavior (ephemeral local disk, so there was nothing to lose).
-databases:
-  - name: pulsehr-db
-    plan: free
-    region: singapore
-    databaseName: pulsehr
-    user: pulsehr
-
+# PostgreSQL is still supported: set DATABASE_URL in the Render dashboard to any external
+# Postgres (e.g. a free Neon or Supabase database, which do not expire) and db.ts switches to
+# it automatically. Leave it unset for SQLite.
+#
+# `npm run build` builds the React app; server.ts serves it from the same process, so the
+# service URL itself is the complete app. The GitHub Pages frontend keeps working too, as long
+# as this service keeps its URL (it was built against https://pulsehr-api-n7il.onrender.com).
+#
+# Free tier caveat: the service sleeps after 15 min idle; the next request takes ~30-60 s.
 services:
   - type: web
     name: pulsehr-api
     runtime: node
     plan: free
     region: singapore
-    buildCommand: npm install
-    startCommand: npm run seed -w @pulsehr/api && npm run start -w @pulsehr/api
+    buildCommand: npm install && npm run build
+    startCommand: node scripts/demo.mjs
     envVars:
       - key: NODE_VERSION
         value: 24
       - key: PULSEHR_JWT_SECRET
         generateValue: true
-      - key: DATABASE_URL
-        fromDatabase:
-          name: pulsehr-db
-          property: connectionString
       # F9 — optional. Without it, POST /attrition/scores/:id/explain returns 503 and the
       # rest of the app is unaffected; the AI risk-explanation assistant just stays inactive.
       - key: ANTHROPIC_API_KEY

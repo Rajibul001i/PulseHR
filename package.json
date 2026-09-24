@@ -18,7 +18,8 @@
     "seed": "npm run seed -w @pulsehr/api",
     "job:score": "npm run job:score -w @pulsehr/api",
     "job:payroll": "npm run job:payroll -w @pulsehr/api",
-    "build": "npm run build -w @pulsehr/web"
+    "build": "npm run build -w @pulsehr/web",
+    "demo": "npm run build && node scripts/demo.mjs"
   },
   "devDependencies": {
     "tsx": "^4.19.2",

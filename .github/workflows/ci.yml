@@ -6,11 +6,13 @@
 
 name: CI
 
+# The repository's default branch is `master`; listing only main/develop meant this workflow
+# never ran at all.
 on:
   push:
-    branches: [main, develop]
+    branches: [master, main, develop]
   pull_request:
-    branches: [main, develop]
+    branches: [master, main, develop]
 
 jobs:
   verify:
