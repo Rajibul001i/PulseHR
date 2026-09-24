@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { get, post, type Me } from '../api';
+import { Picker, employeeOptions } from '../components/Combobox';
 import { EmptyState, TableSkeleton } from '../components/Feedback';
 import { useToast } from '../components/Toast';
 
@@ -194,20 +195,15 @@ export function OKR({ role }: { role: string }) {
           {pickableEmployees.length > 0 && (
             <div style={{ minWidth: 220 }}>
               <label htmlFor="okr-emp-picker">Employee</label>
-              <select
+              <Picker
                 id="okr-emp-picker"
+                options={[
+                  ...(myEmployeeId && !pickableEmployees.some((e) => e.id === myEmployeeId) ? [{ id: myEmployeeId, label: 'Myself' }] : []),
+                  ...employeeOptions(pickableEmployees),
+                ]}
                 value={viewingId ?? ''}
-                onChange={(e) => setViewingId(e.target.value)}
-              >
-                {myEmployeeId && !pickableEmployees.some((e) => e.id === myEmployeeId) && (
-                  <option value={myEmployeeId}>Myself</option>
-                )}
-                {pickableEmployees.map((e) => (
-                  <option key={e.id} value={e.id}>
-                    {e.full_name} ({e.employee_code})
-                  </option>
-                ))}
-              </select>
+                onChange={(id) => id && setViewingId(id)}
+              />
             </div>
           )}
           <div style={{ minWidth: 140 }}>

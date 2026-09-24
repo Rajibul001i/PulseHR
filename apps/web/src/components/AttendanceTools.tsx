@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { ApiError, get, post } from '../api';
 import { useToast } from './Toast';
+import { Picker, employeeOptions } from './Combobox';
 
 /** An instant shown as Dhaka wall-clock time, e.g. "09:05". */
 export const dhakaTime = (iso: string | null | undefined): string =>
@@ -115,7 +116,7 @@ export function CorrectionForm({
   preset,
   onDone,
 }: {
-  employees?: { employee_id: string; full_name: string }[];
+  employees?: { employee_id: string; full_name: string; employee_code?: string; department_name?: string | null }[];
   preset?: { employeeId: string; workDate: string } | null;
   onDone: () => void;
 }) {
@@ -159,14 +160,14 @@ export function CorrectionForm({
         {forOthers && (
           <div style={{ flex: 2 }}>
             <label htmlFor={`${id}-emp`}>Employee</label>
-            <select id={`${id}-emp`} value={form.employeeId} onChange={(e) => setForm({ ...form, employeeId: e.target.value })} required>
-              <option value="">Choose…</option>
-              {employees!.map((e) => (
-                <option key={e.employee_id} value={e.employee_id}>
-                  {e.full_name}
-                </option>
-              ))}
-            </select>
+            <Picker
+              id={`${id}-emp`}
+              options={employeeOptions(employees!)}
+              value={form.employeeId}
+              onChange={(employeeId) => setForm({ ...form, employeeId })}
+              placeholder="Type a name…"
+              required
+            />
           </div>
         )}
         <div>

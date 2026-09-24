@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { get, post } from '../api';
 import { EmptyState, TableSkeleton } from '../components/Feedback';
+import { SearchBox, type ComboOption } from '../components/Combobox';
 import { useToast } from '../components/Toast';
 
 interface Notice {
@@ -187,15 +188,31 @@ export function Notices({ role }: { role: string }) {
           void load(search.trim());
         }}
       >
-        <label htmlFor="n-search" className="sr-only">
-          Search notices
-        </label>
-        <input
+        <SearchBox
           id="n-search"
-          type="search"
+          label="Search notices"
           placeholder="Search all notices, including older ones"
           value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          onChange={setSearch}
+          onSubmit={(q) => {
+            setSearched(q.trim());
+            setNotices(null);
+            void load(q.trim());
+          }}
+          suggest={async (q): Promise<ComboOption[]> =>
+            (await get<Notice[]>(`/notices?q=${encodeURIComponent(q.trim())}`)).slice(0, 8).map((n) => ({
+              id: n.id,
+              label: n.title,
+              detail: new Date(n.published_at).toLocaleDateString(),
+            }))
+          }
+          onPick={(o) => {
+            setSearch(o.label);
+            setSearched(o.label);
+            setNotices(null);
+            void load(o.label);
+          }}
+          minChars={2}
           style={{ flex: 1 }}
         />
         <button type="submit" className="sm">

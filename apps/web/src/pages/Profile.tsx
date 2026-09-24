@@ -1,5 +1,6 @@
 import { useEffect, useState, type ChangeEvent, type FormEvent } from 'react';
 import { get, post, tokens, type Me } from '../api';
+import { Picker, employeeOptions } from '../components/Combobox';
 import { useToast } from '../components/Toast';
 import { StatSkeleton, EmptyState } from '../components/Feedback';
 import { MyRiskIndicator } from '../components/MyRiskIndicator';
@@ -168,20 +169,15 @@ export function Profile({ role }: { role: string }) {
       {isHrAdmin && employees.length > 0 && (
         <div className="field" style={{ maxWidth: 320, marginBottom: 18 }}>
           <label htmlFor="emp-picker">Viewing</label>
-          <select id="emp-picker" value={viewingId ?? ''} onChange={(e) => setViewingId(e.target.value)}>
-            {emp && (
-              <option value={String(emp.id)}>
-                {String(emp.full_name)} (me)
-              </option>
-            )}
-            {employees
-              .filter((e) => !emp || e.id !== String(emp.id))
-              .map((e) => (
-                <option key={e.id} value={e.id}>
-                  {e.full_name} — {e.employee_code}
-                </option>
-              ))}
-          </select>
+          <Picker
+            id="emp-picker"
+            options={[
+              ...(emp ? [{ id: String(emp.id), label: `${String(emp.full_name)} (me)` }] : []),
+              ...employeeOptions(employees.filter((e) => !emp || e.id !== String(emp.id))),
+            ]}
+            value={viewingId ?? ''}
+            onChange={(id) => id && setViewingId(id)}
+          />
         </div>
       )}
 

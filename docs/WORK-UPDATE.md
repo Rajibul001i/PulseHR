@@ -6,6 +6,30 @@ as a changelog.
 
 ---
 
+## Session 8 — 24 September 2026
+
+### Type-ahead search and searchable pickers
+
+Every search box now shows suggestions as you type, and every long employee list is a
+searchable picker instead of a `<select>`. One component, `apps/web/src/components/Combobox.tsx`,
+follows the ARIA combobox pattern: Up/Down move, Enter picks, Escape closes.
+
+| Screen | What changed |
+|---|---|
+| People | Search suggests people (name, code, designation, department) and "Everyone in *department*". Picking a person opens Manage. The manager field in Add employee and Employment details is a picker |
+| Noticeboard | Search suggests matching notice titles from the server, including older ones |
+| Shifts | New find box: filters the table as you type; picking a person, "Everyone in *department*" or "Everyone on *shift*" ticks them for assignment |
+| Attendance | The employee field in "Fix a check-in or check-out" is a picker |
+| My profile, Payslips, Performance | The "viewing" employee list is a picker, searchable by name or code |
+
+Found and fixed along the way: on People, the manager list and the employee opened in
+Manage came from the *filtered* search results, so a search could hide a valid manager.
+Both now use the full employee list.
+
+Checked in Chromium by keyboard and mouse; 130 unit, 30 smoke and 137 regression checks pass.
+
+---
+
 ## Session 7 — 24 September 2026
 
 ### Shifts, duty times and attendance corrections

@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { get, post } from '../api';
 import { EmptyState, TableSkeleton } from '../components/Feedback';
 import { useToast } from '../components/Toast';
+import { SearchBox, filterOptions, type ComboOption } from '../components/Combobox';
 
 interface Shift {
   id: string;
@@ -126,6 +127,7 @@ export function Shifts({ role }: { role: string }) {
   const [shifts, setShifts] = useState<Shift[] | null>(null);
   const [people, setPeople] = useState<OverviewRow[] | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
+  const [find, setFind] = useState('');
   const [assign, setAssign] = useState({ shiftId: '', effectiveFrom: today() });
   const [editing, setEditing] = useState<string | null>(null);
   const [edit, setEdit] = useState({ breakMinutes: '', graceMinutes: '', days: [] as number[] });
@@ -176,7 +178,41 @@ export function Shifts({ role }: { role: string }) {
     }
   }
 
-  const allSelected = !!people?.length && selected.length === people.length;
+  // Typing filters the table; picking a suggestion ticks that person, department or shift.
+  const words = find.toLowerCase().trim().split(/\s+/).filter(Boolean);
+  const shown = people?.filter((p) => {
+    const hay = `${p.full_name} ${p.employee_code} ${p.department_name ?? ''} ${p.shift_name ?? 'office hours'}`.toLowerCase();
+    return words.every((w) => hay.includes(w));
+  });
+  const allSelected = !!shown?.length && shown.every((p) => selected.includes(p.employee_id));
+
+  function suggest(q: string): ComboOption[] {
+    const rows = people ?? [];
+    const group = (kind: string, name: string, of: (p: OverviewRow) => string) => {
+      const n = rows.filter((p) => of(p) === name).length;
+      return { id: `${kind}:${name}`, label: `Everyone ${kind === 'dept' ? 'in' : 'on'} ${name}`, detail: `${n} ${n === 1 ? 'person' : 'people'}` };
+    };
+    const depts = [...new Set(rows.map((p) => p.department_name).filter((d): d is string => !!d))].map((d) => group('dept', d, (p) => p.department_name ?? ''));
+    const onShift = [...new Set(rows.map((p) => p.shift_name ?? 'office hours'))].map((n) => group('shift', n, (p) => p.shift_name ?? 'office hours'));
+    const persons = rows.map((p) => ({
+      id: p.employee_id,
+      label: p.full_name,
+      detail: [p.employee_code, p.department_name, p.shift_name ?? 'Office hours'].filter(Boolean).join(' · '),
+    }));
+    return [...filterOptions(persons, q, 5), ...filterOptions(depts, q, 2), ...filterOptions(onShift, q, 2)];
+  }
+
+  function pickFound(o: ComboOption) {
+    const [kind, name] = o.id.includes(':') ? (o.id.split(/:(.*)/s) as [string, string]) : ['person', o.id];
+    const ids = (people ?? [])
+      .filter((p) =>
+        kind === 'dept' ? p.department_name === name : kind === 'shift' ? (p.shift_name ?? 'office hours') === name : p.employee_id === name,
+      )
+      .map((p) => p.employee_id);
+    setSelected((s) => [...new Set([...s, ...ids])]);
+    setFind('');
+    toast.success(`${ids.length === 1 ? '1 person' : `${ids.length} people`} selected.`);
+  }
 
   return (
     <div className="view-fade">
@@ -306,6 +342,27 @@ export function Shifts({ role }: { role: string }) {
         </div>
       </form>
 
+      {people && people.length > 0 && (
+        <div className="row-tight" style={{ marginBottom: 10 }}>
+          <SearchBox
+            id="shift-find"
+            label="Find people to select"
+            placeholder="Find a person, department or shift…"
+            value={find}
+            onChange={setFind}
+            onSubmit={() => undefined}
+            suggest={suggest}
+            onPick={pickFound}
+            style={{ width: 340 }}
+          />
+          {selected.length > 0 && (
+            <button type="button" className="sm" onClick={() => setSelected([])}>
+              Clear selection ({selected.length})
+            </button>
+          )}
+        </div>
+      )}
+
       {people === null ? (
         <TableSkeleton rows={6} cols={5} />
       ) : (
@@ -315,7 +372,10 @@ export function Shifts({ role }: { role: string }) {
               <tr>
                 <th style={{ width: 36 }}>
                   <label htmlFor="sel-all" className="sr-only">Select everyone</label>
-                  <input id="sel-all" type="checkbox" style={{ width: 'auto' }} checked={allSelected} onChange={() => setSelected(allSelected ? [] : people.map((p) => p.employee_id))} />
+                  <input id="sel-all" type="checkbox" style={{ width: 'auto' }} checked={allSelected} onChange={() => {
+                      const ids = shown!.map((p) => p.employee_id);
+                      setSelected((s) => (allSelected ? s.filter((x) => !ids.includes(x)) : [...new Set([...s, ...ids])]));
+                    }} />
                 </th>
                 <th>Employee</th>
                 <th>Department</th>
@@ -324,7 +384,14 @@ export function Shifts({ role }: { role: string }) {
               </tr>
             </thead>
             <tbody>
-              {people.map((p) => (
+              {shown!.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="stat-note">
+                    No one matches “{find}”.
+                  </td>
+                </tr>
+              )}
+              {shown!.map((p) => (
                 <tr key={p.employee_id}>
                   <td>
                     <label htmlFor={`sel-${p.employee_id}`} className="sr-only">Select {p.full_name}</label>

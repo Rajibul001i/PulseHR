@@ -112,7 +112,8 @@ apps/web/src/styles.css              Design tokens, light + dark, responsive
 apps/web/src/components/             Toast, Feedback (skeletons, empty states),
                                      NotificationBell, Logo, RiskInsights,
                                      MyRiskIndicator, AttendanceTools (duty time,
-                                     correction form and review queue)
+                                     correction form and review queue), Combobox
+                                     (type-ahead search and searchable pickers)
 
 apps/web/src/pages/                  15 screens: Login, ResetPassword, Dashboard,
                                      Profile, People, Attendance, Shifts, Leave, Payslips,

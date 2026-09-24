@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { formatBDT } from '@pulsehr/core';
 import { get, post, tokens, type PayslipDto, type PayslipLineDto } from '../api';
+import { Picker, employeeOptions } from '../components/Combobox';
 
 const MONTHS = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -332,17 +333,12 @@ export function Payslips({ role }: { role: string }) {
       {isHrAdmin && employees.length > 0 && (
         <div className="field" style={{ maxWidth: 320, marginBottom: 14 }}>
           <label htmlFor="payslip-emp-picker">Viewing</label>
-          <select
+          <Picker
             id="payslip-emp-picker"
+            options={employeeOptions(employees)}
             value={viewingId ?? ''}
-            onChange={(e) => setViewingId(e.target.value)}
-          >
-            {employees.map((e) => (
-              <option key={e.id} value={e.id}>
-                {e.full_name} — {e.employee_code}
-              </option>
-            ))}
-          </select>
+            onChange={(id) => id && setViewingId(id)}
+          />
         </div>
       )}
 

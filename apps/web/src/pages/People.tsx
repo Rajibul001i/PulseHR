@@ -3,6 +3,7 @@ import { formatBDT } from '@pulsehr/core';
 import { get, post } from '../api';
 import { EmptyState, TableSkeleton } from '../components/Feedback';
 import { useToast } from '../components/Toast';
+import { Picker, SearchBox, employeeOptions, filterOptions, type ComboOption } from '../components/Combobox';
 
 interface Employee {
   id: string;
@@ -155,14 +156,7 @@ function AddEmployee({
         </div>
         <div>
           <label htmlFor="ne-manager">Line manager</label>
-          <select id="ne-manager" value={form.managerId} onChange={set('managerId')}>
-            <option value="">None</option>
-            {managers.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.full_name}
-              </option>
-            ))}
-          </select>
+          <Picker id="ne-manager" options={employeeOptions(managers)} value={form.managerId} onChange={(id) => setForm({ ...form, managerId: id })} noneLabel="None" />
         </div>
         <div>
           <label htmlFor="ne-hire">Hire date</label>
@@ -345,16 +339,14 @@ function ManageEmployee({
         </div>
         <div>
           <label htmlFor="me-manager">Line manager</label>
-          <select id="me-manager" value={edit.managerId} onChange={(e) => setEdit({ ...edit, managerId: e.target.value })} disabled={!active}>
-            <option value="">None</option>
-            {managers
-              .filter((m) => m.id !== employee.id)
-              .map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.full_name}
-                </option>
-              ))}
-          </select>
+          <Picker
+            id="me-manager"
+            options={employeeOptions(managers.filter((m) => m.id !== employee.id))}
+            value={edit.managerId}
+            onChange={(id) => setEdit({ ...edit, managerId: id })}
+            noneLabel="None"
+            disabled={!active}
+          />
         </div>
         <div>
           <label htmlFor="me-gender">Gender</label>
@@ -546,6 +538,8 @@ function Departments({ departments, onChanged }: { departments: Department[]; on
 export function People() {
   const [tab, setTab] = useState<'employees' | 'departments'>('employees');
   const [employees, setEmployees] = useState<Employee[] | null>(null);
+  // The whole directory, unaffected by the search: suggestions, managers and "Manage" use it.
+  const [everyone, setEveryone] = useState<Employee[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [search, setSearch] = useState('');
   const [showLeavers, setShowLeavers] = useState(false);
@@ -553,10 +547,9 @@ export function People() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   async function load(q = search) {
-    const [list, depts] = await Promise.all([
-      get<Employee[]>(q.trim() ? `/employees?q=${encodeURIComponent(q.trim())}` : '/employees'),
-      get<Department[]>('/departments'),
-    ]);
+    const [all, depts] = await Promise.all([get<Employee[]>('/employees'), get<Department[]>('/departments')]);
+    const list = q.trim() ? await get<Employee[]>(`/employees?q=${encodeURIComponent(q.trim())}`) : all;
+    setEveryone(all);
     setEmployees(list);
     setDepartments(depts);
   }
@@ -567,8 +560,29 @@ export function People() {
   }, []);
 
   const visible = employees?.filter((e) => showLeavers || e.employment_status === 'ACTIVE') ?? null;
-  const managers = employees?.filter((e) => e.employment_status === 'ACTIVE') ?? [];
-  const selected = employees?.find((e) => e.id === selectedId) ?? null;
+  const managers = everyone.filter((e) => e.employment_status === 'ACTIVE');
+  const selected = everyone.find((e) => e.id === selectedId) ?? null;
+
+  // Suggestions: matching people (open them straight away), then matching departments.
+  const suggest = (q: string): ComboOption[] => {
+    const pool = everyone.filter((e) => showLeavers || e.employment_status === 'ACTIVE');
+    const people = filterOptions(employeeOptions(pool), q, 6);
+    const depts = departments
+      .filter((d) => d.name.toLowerCase().includes(q.toLowerCase().trim()))
+      .slice(0, 3)
+      .map((d) => ({ id: `dept:${d.name}`, label: `Everyone in ${d.name}`, detail: `${d.headcount} people` }));
+    return [...people, ...depts];
+  };
+  const pickSuggestion = (o: ComboOption) => {
+    if (o.id.startsWith('dept:')) {
+      const name = o.id.slice(5);
+      setSearch(name);
+      void load(name);
+      return;
+    }
+    setSelectedId(o.id);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
 
   return (
     <div className="view-fade">
@@ -618,16 +632,16 @@ export function People() {
                 void load(search);
               }}
             >
-              <label htmlFor="people-search" className="sr-only">
-                Search employees
-              </label>
-              <input
+              <SearchBox
                 id="people-search"
-                type="search"
+                label="Search employees"
                 placeholder="Name, code, designation or department"
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                style={{ width: 300 }}
+                onChange={setSearch}
+                onSubmit={(q) => void load(q)}
+                suggest={suggest}
+                onPick={pickSuggestion}
+                style={{ width: 320 }}
               />
               <button className="sm">Search</button>
               <label style={{ display: 'inline-flex', gap: 6, alignItems: 'center', margin: 0 }}>
