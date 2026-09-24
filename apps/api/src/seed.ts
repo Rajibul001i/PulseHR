@@ -20,6 +20,7 @@ import {
 } from '@pulsehr/core';
 import { all, exec, nowIso, one, openDb, run, uuid } from './db.js';
 import { hashPassword } from './auth.js';
+import { nidRecord } from './recovery.js';
 
 /** Deterministic PRNG (mulberry32) — a seeded demo must be reproducible. */
 function rng(seed: number): () => number {
@@ -161,14 +162,17 @@ async function seedOrganisation(opts: {
     );
 
     const hireDate = addDays(TODAY, -Math.round(profile.monthsTenure * 30.44));
+    // Demo NIDs end in the employee number (EMP-0001 → …0001), so password recovery can be
+    // walked through without a lookup table. Real NIDs are only ever stored hashed + last 4.
+    const nid = nidRecord(`19${String(opts.seed % 100).padStart(2, '0')}${String(index + 1).padStart(6, '0')}`);
     // A recent manager change only for the "leaving" profiles — F6.
     const managerChangedAt = profile.risk === 'leaving' && index % 2 === 0 ? addDays(TODAY, -45) : null;
 
     await run(
       `INSERT INTO employee (id, organisation_id, user_id, department_id, manager_id, employee_code,
                              full_name, designation, gender, hire_date, employment_status,
-                             manager_changed_at, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?)`,
+                             manager_changed_at, nid_hash, nid_last4, phone, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?, ?)`,
       employeeId,
       orgId,
       userId,
@@ -180,6 +184,10 @@ async function seedOrganisation(opts: {
       profile.gender,
       hireDate,
       managerChangedAt,
+      nid.nidHash,
+      nid.nidLast4,
+      // Password recovery sends its code here. Demo numbers: 017 + tenant + employee number.
+      `017${String(opts.seed % 100).padStart(2, '0')}${String(index + 1).padStart(6, '0')}`,
       nowIso(),
     );
     if (isManager) managerId = employeeId;
@@ -510,6 +518,7 @@ if (process.env.DATABASE_URL) {
 for (const table of [
   'key_result_update', 'bias_audit_report', // added with migration 013
   'attendance_correction', 'shift_assignment', 'shift', // added with migration 014
+  'account_recovery', // added with migration 015
   'key_result', 'candidate_stage_event', 'candidate_evaluation', 'notice_department', 'notice_read',
   'attrition_contribution', 'attrition_score', 'payslip_line', 'payslip', 'leave_ledger',
   'leave_request', 'attendance', 'salary_structure', 'notice', 'audit_log', 'holiday',

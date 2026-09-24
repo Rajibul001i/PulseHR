@@ -32,12 +32,20 @@ Base URL `/api`. All responses JSON. All endpoints except `/auth/*` require
 | POST | `/auth/login` | — | → `accessToken` (15 min), `refreshToken` (7 d). Rate limited 5/15 min. |
 | POST | `/auth/refresh` | — | Single-use, rotated on every use |
 | POST | `/auth/logout` | any | **Revokes every session for the user** (ADR-006) |
+| POST | `/auth/forgot-password` | — | Emails a reset link (30 min, single use). For accounts with no employee ID |
+| POST | `/auth/reset-password` | — | `token`, `password` (min 8). Revokes every session |
+| GET | `/auth/organisations` | — | Company names for the recovery screen (employee IDs are unique per company) |
+| POST | `/auth/recovery/start` | — | `organisationId`, `employeeCode` → `recoveryToken` (15 min). 404 if no active login; 429 after 5 recoveries in an hour |
+| POST | `/auth/recovery/nid` | — | `recoveryToken`, `nidLast4` → SMS code sent; returns the masked phone. 5 wrong tries lock the recovery |
+| POST | `/auth/recovery/resend` | — | New code after 60 s, at most 3 per recovery |
+| POST | `/auth/recovery/otp` | — | `recoveryToken`, 6-digit `code` (5 min, 5 tries) → `resetToken` for `/auth/reset-password`, and the sign-in email |
 
 ## 3. Employees
 
 | Method | Path | Role | Notes |
 |---|---|---|---|
 | GET | `/me` | any | Principal, employee record, leave balances |
+| GET | `/me/department` | MANAGER | Their department's name and active member count (the sidebar card) |
 | GET | `/employees` | any | Tenant-scoped |
 | GET | `/employees/{id}` | any | Includes derived balances |
 

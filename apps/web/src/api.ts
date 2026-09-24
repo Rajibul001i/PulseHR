@@ -168,6 +168,10 @@ export interface SubscriptionDto {
   pricePaisa: number;
 }
 
+/** What /subscription returns: everything for HR_ADMIN, only the organisation name and its
+ *  entitlements for anyone else (plan, seats and price are HR's business). */
+export type SubscriptionView = Pick<SubscriptionDto, 'organisation' | 'entitlements'> & Partial<SubscriptionDto>;
+
 /**
  * The body of a 402 Payment Required.
  *

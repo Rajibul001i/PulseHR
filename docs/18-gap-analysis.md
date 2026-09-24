@@ -2,7 +2,7 @@
 
 Checked on 24 Sep 2026: every claim in *PulseHR_Project_Report* and *PulseHR_Report_Presentation*
 against the code on `master` (b7898e7). After the gaps below were closed, and shifts and
-attendance corrections were added: 130/130 unit tests, typecheck clean, 30/30 smoke and 137
+attendance corrections were added: 130/130 unit tests, typecheck clean, 30/30 smoke and 157
 bug-hunt checks with 0 defects, on SQLite and on PostgreSQL 16.
 
 ## Fixed in this pass
@@ -36,7 +36,7 @@ against both SQLite and a real PostgreSQL 16 database.
 | 12 | PostgreSQL makes overlapping approved leave impossible at the schema level | Migration 013: an exclusion constraint on PostgreSQL, triggers on SQLite | `scripts/verify-leave-overlap.mjs` |
 | 13 | F5.5 department-wise payroll summary | Payslips → Payroll by department. `GET /api/payroll/summary` | GAP-14 |
 | 14 | F8.4 searchable notice archive | Noticeboard search, which also reaches notices older than the latest 50 | GAP-15 |
-| 15 | F1.4 reset link sent by email | Sent by SMTP when `PULSEHR_SMTP_URL` is set. Without it (the free demo) the link is shown on screen, as before | Checked with a test transport |
+| 15 | F1.4 password reset | Two routes. By employee ID: company and employee ID, then the last 4 NID digits, then a 6-digit SMS code, then the new password (`recovery.ts`, migration 015). By email, for accounts with no employee record: a link sent by SMTP when `PULSEHR_SMTP_URL` is set. Without a gateway (the free demo) the code or link is shown on screen | REC-01 to REC-06 |
 | 16 | "Feature branches merge into develop" | Not code: the report text needs to say work merges into `master` | — |
 
 Found and fixed along the way: on PostgreSQL the department list returned
@@ -68,8 +68,10 @@ but none of those checks exists yet.
 
 - **Screens:** 15, not 13. Add **People** (HR: employee directory, add, edit, salary, separation, departments) and **Shifts** (managers and HR: shift definitions and who works which shift).
 - **Unit tests:** 130, not 107 (23 new: 8 bias audit, 8 absence marking, 7 shift rules).
-- **Regression checks:** 137, not 64 (the 7 AI-assistant checks were removed; 51 gap-closure and 29 shift and correction checks were added).
-- **Migrations and tables:** 14 forward-only migrations and 36 tables (added `key_result_update`, `bias_audit_report`, `shift`, `shift_assignment`, `attendance_correction`).
+- **Regression checks:** 157, not 64 (the 7 AI-assistant checks were removed; 51 gap-closure, 29 shift and correction, and 20 password-recovery and plan-visibility checks were added).
+- **Migrations and tables:** 15 forward-only migrations and 37 tables (added `key_result_update`, `bias_audit_report`, `shift`, `shift_assignment`, `attendance_correction`, `account_recovery`).
+- **F1.4 password reset:** by employee ID, the last 4 NID digits and a one-time code sent by SMS to the phone on file; the emailed link remains only for accounts with no employee record.
+- **Role visibility:** plan, seats and billing are shown to HR administrators only. A department manager sees their department and its head count; an employee sees neither.
 - **F3 Attendance:** lateness is measured from each employee's own shift after a grace period; night shifts count on the day they start; overtime is worked hours past 8, after the unpaid break. Employees see their duty time and a 14-day roster, and can ask for a correction; managers and HR approve it or fix a record directly. Every correction keeps the values it replaced, and a month whose payroll is issued cannot be changed.
 - **Section 5.4.1:** remove the explain-only AI assistant; it was taken out of the product.
 - **Section 5.4.2 version control:** feature work merges into `master`; there is no `develop` branch.

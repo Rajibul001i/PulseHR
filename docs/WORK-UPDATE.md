@@ -6,6 +6,43 @@ as a changelog.
 
 ---
 
+## Session 9 — 24 September 2026
+
+### Who sees the plan card, and password recovery by employee ID
+
+**Sidebar by role.** The plan card (tier, seats, "Manage plan") is now HR's alone, and the
+API enforces it: `/subscription` returns plan, seats, trial and price to HR_ADMIN only, and
+just the organisation name and entitlements to everyone else. A department manager sees a
+card with their department and its head count (`GET /me/department`). An employee sees no
+card. The Plan screen redirects anyone but HR, features the organisation hasn't bought are
+hidden from non-HR menus instead of shown locked, and the upgrade prompt tells non-HR users
+to ask their HR administrator rather than showing prices.
+
+**Forgot password, in four steps** (`apps/api/src/recovery.ts`, migration 015):
+
+1. Company and employee ID. IDs are unique only within a company.
+2. The last 4 digits of the National ID on file.
+3. A 6-digit code sent by SMS to the phone on file (masked on screen, e.g. `+88017•••••001`).
+4. The new password. Every session is signed out and the sign-in email is shown.
+
+Limits: 5 wrong tries per step lock the recovery, a code lasts 5 minutes and can be resent
+after 60 s (3 times at most), a recovery lasts 15 minutes, and an account can start 5 an
+hour. The recovery token and the code are stored hashed. SMS goes through
+`PULSEHR_SMS_URL`; without it (the free demo) the code is shown on screen, like the email
+link. The email link stays for accounts with no employee record, such as an HR
+administrator's own login.
+
+HR records the NID and mobile number in People → Add employee, or in Manage → Password
+recovery details. Only a salted hash and the last 4 NID digits are stored. Found and fixed
+along the way: `nid_hash` was included in every employee record the API returned; it no
+longer leaves the server. Demo data now has an NID ending in each employee's number and a
+phone for everyone.
+
+20 new regression checks (REC-01 to REC-06, VIS-01, VIS-02). 130 unit, 30 smoke and 157
+regression checks pass on SQLite and on PostgreSQL 16; the pg-mem migration check passes.
+
+---
+
 ## Session 8 — 24 September 2026
 
 ### Type-ahead search and searchable pickers

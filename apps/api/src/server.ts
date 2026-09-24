@@ -37,7 +37,7 @@ import {
   structureInForce,
   type LeaveType,
 } from '@pulsehr/core';
-import { openDb, one, run, transaction, type Row } from './db.js';
+import { all, openDb, one, run, transaction, type Row } from './db.js';
 import {
   authenticate,
   isLockedOut,
@@ -68,6 +68,7 @@ import './jobs/biasAudit.js';
 import { startScheduler } from './jobs/scheduler.js';
 import { requireFeature, subscriptionOf } from './entitlement.js';
 import { emailConfigured, sendPasswordResetEmail } from './mailer.js';
+import { NID_RE, nidRecord, resendOtp, startRecovery, verifyNid, verifyOtp } from './recovery.js';
 
 await openDb();
 await loadDeactivatedUsers();
@@ -214,6 +215,62 @@ app.post(
   }),
 );
 
+// F1.4, second route: recovery by employee ID → last 4 NID digits → SMS code (recovery.ts).
+// Employee IDs are unique only within a company, so the company is chosen first.
+app.get(
+  '/api/auth/organisations',
+  asyncHandler(async (_req, res) => {
+    res.json(await all('SELECT id, name FROM organisation ORDER BY name'));
+  }),
+);
+
+const answer = (res: Response, result: { ok: true } | { ok: false; status: number; error: string }) => {
+  if (!result.ok) {
+    res.status(result.status).json({ error: result.error });
+    return;
+  }
+  const { ok: _ok, ...body } = result;
+  res.json(body);
+};
+
+app.post(
+  '/api/auth/recovery/start',
+  asyncHandler(async (req, res) => {
+    const { organisationId, employeeCode } = z
+      .object({ organisationId: z.string().min(1), employeeCode: z.string().trim().min(1).max(20) })
+      .parse(req.body);
+    answer(res, await startRecovery(organisationId, employeeCode));
+  }),
+);
+
+app.post(
+  '/api/auth/recovery/nid',
+  asyncHandler(async (req, res) => {
+    const { recoveryToken, nidLast4 } = z
+      .object({ recoveryToken: z.string().min(1), nidLast4: z.string().regex(/^\d{4}$/, 'Enter the last 4 digits of your NID.') })
+      .parse(req.body);
+    answer(res, await verifyNid(recoveryToken, nidLast4));
+  }),
+);
+
+app.post(
+  '/api/auth/recovery/resend',
+  asyncHandler(async (req, res) => {
+    const { recoveryToken } = z.object({ recoveryToken: z.string().min(1) }).parse(req.body);
+    answer(res, await resendOtp(recoveryToken));
+  }),
+);
+
+app.post(
+  '/api/auth/recovery/otp',
+  asyncHandler(async (req, res) => {
+    const { recoveryToken, code } = z
+      .object({ recoveryToken: z.string().min(1), code: z.string().regex(/^\d{6}$/, 'Enter the 6-digit code.') })
+      .parse(req.body);
+    answer(res, await verifyOtp(recoveryToken, code));
+  }),
+);
+
 app.use('/api', (req, res, next) => {
   // F7.1/F7.2 · US-34/US-35: the careers pages are "reachable on a public link with no
   // login" -- a real acceptance criterion, not an oversight, so /public is exempted the same
@@ -253,6 +310,8 @@ app.get(
  */
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+/** A Bangladeshi mobile number: 01XXXXXXXXX, optionally with +880 / 880 in front. */
+const PHONE_RE = /^(\+?880|0)1[3-9]\d{8}$/;
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 const takaToPaisa = (taka: number): number => Math.round(taka * 100);
 
@@ -295,6 +354,8 @@ app.post(
         managerId: z.string().nullable().default(null),
         hireDate: z.string().regex(DATE_RE),
         gender: z.enum(['M', 'F']).nullable().default(null),
+        nid: z.string().trim().regex(NID_RE, 'The NID must be 10, 13 or 17 digits.').nullable().default(null),
+        phone: z.string().trim().regex(PHONE_RE, 'Enter a Bangladeshi mobile number, e.g. 01712345678.').nullable().default(null),
         salary: salaryInput,
         account: z
           .object({
@@ -341,6 +402,8 @@ app.post(
       managerId: body.managerId,
       hireDate: body.hireDate,
       gender: body.gender,
+      nid: body.nid ? nidRecord(body.nid) : null,
+      phone: body.phone,
       salary: toStructure(body.salary),
       account: body.account
         ? {
@@ -367,6 +430,8 @@ app.post(
         departmentId: z.string().nullable().optional(),
         managerId: z.string().nullable().optional(),
         gender: z.enum(['M', 'F']).nullable().optional(),
+        nid: z.string().trim().regex(NID_RE, 'The NID must be 10, 13 or 17 digits.').optional(),
+        phone: z.string().trim().regex(PHONE_RE, 'Enter a Bangladeshi mobile number, e.g. 01712345678.').optional(),
       })
       .parse(req.body);
     const repo = repoOf(req);
@@ -391,7 +456,8 @@ app.post(
       res.status(400).json({ error: 'The manager must be an active employee of this organisation.' });
       return;
     }
-    await repo.updateEmployment(id, changes);
+    const { nid, ...rest } = changes;
+    await repo.updateEmployment(id, { ...rest, nid: nid ? nidRecord(nid) : undefined });
     res.json(await repo.getEmployee(id));
   }),
 );
@@ -578,6 +644,28 @@ app.post(
     const { ids } = z.object({ ids: z.array(z.string()).optional() }).parse(req.body ?? {});
     await repoOf(req).markNotificationsRead(req.principal!.userId, ids);
     res.json({ ok: true });
+  }),
+);
+
+// The sidebar card for a department manager: their department and how many people are in it.
+app.get(
+  '/api/me/department',
+  requireRole('MANAGER'),
+  handler(async (req, res) => {
+    const repo = repoOf(req);
+    const deptId = await managerDepartment(repo, req.principal!);
+    if (!deptId) {
+      res.json({ department: null, members: 0 });
+      return;
+    }
+    const row = await one(
+      `SELECT d.name, (SELECT COUNT(*) FROM employee e
+                        WHERE e.department_id = d.id AND e.employment_status = 'ACTIVE') AS members
+         FROM department d WHERE d.id = ? AND d.organisation_id = ?`,
+      deptId,
+      req.principal!.organisationId,
+    );
+    res.json({ department: row?.name ?? null, members: Number(row?.members ?? 0) });
   }),
 );
 
@@ -1573,13 +1661,20 @@ app.get(
     const subscription = await subscriptionOf(p.organisationId);
     const today = businessDate(new Date());
     const org = await repoOf(req).subscription();
+    const entitlements = entitledFeatures(subscription, today);
+    // Plan, seats, trial and price are the HR administrator's business. Everyone else gets
+    // only what the screens need to hide features the organisation hasn't bought.
+    if (p.role !== 'HR_ADMIN') {
+      res.json({ organisation: org?.name ?? null, entitlements });
+      return;
+    }
     res.json({
       organisation: org?.name ?? null,
       tier: subscription.tier,
       status: subscription.status,
       trialEndsOn: subscription.trialEndsOn,
       seats: checkSeats(subscription),
-      entitlements: entitledFeatures(subscription, today),
+      entitlements,
       catalogue: PLAN_FEATURES,
       pricePaisa: TIER_PRICE_PAISA[subscription.tier],
     });

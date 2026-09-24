@@ -64,6 +64,14 @@ Sign in as `hr@meridian.test` / `Passw0rd!`.
 | `farhana.akter@meridian.test` | Employee — own attendance, leave, payslips |
 | `hr@bengal.test` | HR Admin of a **second tenant** — proves isolation |
 
+Only HR sees the plan and seats in the sidebar; a manager sees their department and its
+head count, and an employee sees neither.
+
+**Forgot password** works by employee ID: choose *Meridian Textiles Ltd.*, enter
+`EMP-0001`, then the last 4 NID digits. In the demo data every NID ends in the employee
+number (`EMP-0001` → `0001`). With no SMS gateway configured, the 6-digit code is shown on
+screen instead of sent.
+
 Requires **Node 24+** (for the built-in `node:sqlite`; Node 22.13+ also works). No database
 install, no Docker.
 
@@ -75,7 +83,7 @@ install, no Docker.
 | `npx tsc -b` | **clean**, TypeScript strict across 3 workspaces |
 | `npm run build` | frontend builds, 214 kB (70 kB gzipped) |
 | `node scripts/smoke.mjs` | **30 / 30 passing** against a live API |
-| `node scripts/bughunt.mjs` | **137 checks, 0 defects** (run on a fresh seed) |
+| `node scripts/bughunt.mjs` | **157 checks, 0 defects** (run on a fresh seed) |
 | `node scripts/verify-leave-overlap.mjs` | the database itself refuses overlapping approved leave |
 | All of the above with `DATABASE_URL` set | same results on PostgreSQL 16 |
 | Payslip immutability trigger | verified — `UPDATE` rejected at the database level |
@@ -123,7 +131,7 @@ packages/core/     Pure domain logic — money, dates, leave, payroll, attrition
 apps/api/          Express API + worker jobs + migrations + seeder.
 apps/web/          React 18 SPA (Vite, Redux Toolkit).
 scripts/smoke.mjs  30 end-to-end checks, each mapped to a defect.
-scripts/bughunt.mjs 137 regression checks for every SQA defect, closed gap and shift rule.
+scripts/bughunt.mjs 157 regression checks for every SQA defect, closed gap, shift and recovery rule.
 scripts/demo.mjs   One-command demo: seed, score, payroll, serve web + API.
 tools/             fix_deck_numbering.py — repairs the deck's slide numbers.
 docs/              Groundwork.
@@ -150,6 +158,7 @@ docs/              Groundwork.
 |---|---|
 | `DATABASE_URL` | Use PostgreSQL instead of SQLite |
 | `PULSEHR_SMTP_URL`, `PULSEHR_MAIL_FROM`, `PULSEHR_APP_URL` | Email password-reset links. Without SMTP the link is shown on screen (demo mode) |
+| `PULSEHR_SMS_URL`, `PULSEHR_SMS_TOKEN` | SMS gateway for the password-recovery code: `POST {"to","message"}` with an optional bearer token. Without it the code is shown on screen (demo mode) |
 | `PULSEHR_SCHEDULER=off` | Turn off the built-in 02:00 Asia/Dhaka nightly jobs (absences, scoring, quarterly bias audit) |
 
 ## Live demo hosting

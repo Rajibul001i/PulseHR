@@ -95,9 +95,11 @@ apps/api/src/jobs/markAbsences.ts    Absence marking (F3.3)
 apps/api/src/jobs/biasAudit.ts       Quarterly bias audit
 apps/api/src/jobs/scheduler.ts       Nightly 02:00 Asia/Dhaka schedule
 apps/api/src/mailer.ts               Password-reset email over SMTP (optional)
+apps/api/src/recovery.ts             Forgot password: employee ID → NID → SMS code
+apps/api/src/sms.ts                  SMS gateway for the recovery code (optional)
 
-apps/api/migrations/                 14 forward-only SQLite migrations (001–014)
-apps/api/migrations-postgres/        The same 14 migrations for PostgreSQL
+apps/api/migrations/                 15 forward-only SQLite migrations (001–015)
+apps/api/migrations-postgres/        The same 15 migrations for PostgreSQL
 ```
 
 ### Frontend — `apps/web/`
@@ -113,7 +115,8 @@ apps/web/src/components/             Toast, Feedback (skeletons, empty states),
                                      NotificationBell, Logo, RiskInsights,
                                      MyRiskIndicator, AttendanceTools (duty time,
                                      correction form and review queue), Combobox
-                                     (type-ahead search and searchable pickers)
+                                     (type-ahead search and searchable pickers),
+                                     AccountRecovery (the 4-step forgot-password flow)
 
 apps/web/src/pages/                  15 screens: Login, ResetPassword, Dashboard,
                                      Profile, People, Attendance, Shifts, Leave, Payslips,

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
-import { NavLink, Route, Routes, useLocation } from 'react-router-dom';
-import { post, type PlanFeatureKey, type Role, type SubscriptionDto } from './api';
+import { Navigate, NavLink, Route, Routes, useLocation } from 'react-router-dom';
+import { get, post, type PlanFeatureKey, type Role, type SubscriptionDto, type SubscriptionView } from './api';
 import { signedOut, type RootState } from './store';
 import { fetchSubscription, TIER_LABEL, trialDaysLeft } from './subscription';
 import { ToastProvider, useToast } from './components/Toast';
@@ -148,9 +148,8 @@ const NAV: NavItem[] = [
   { to: '/ats', label: 'Recruitment', feature: 'ats' },
 ];
 
-/** The account-level summary shown in the sidebar. For HR_ADMIN it's the entry point into
- *  Plan & billing (see the comment on NAV above) -- for every other role it's read-only,
- *  since only HR_ADMIN can act on billing. */
+/** The account-level summary shown in the sidebar, to HR_ADMIN only: it's their entry point
+ *  into Plan & billing (see the comment on NAV above). Nobody else sees plan or seat data. */
 function PlanChip({ sub, days, linked }: { sub: SubscriptionDto; days: number | null; linked: boolean }) {
   const body = (
     <>
@@ -183,6 +182,26 @@ function PlanChip({ sub, days, linked }: { sub: SubscriptionDto; days: number | 
   );
 }
 
+/** A department manager's card: their department and how many people are in it. */
+function DepartmentChip() {
+  const [dept, setDept] = useState<{ department: string | null; members: number } | null>(null);
+  useEffect(() => {
+    get<{ department: string | null; members: number }>('/me/department')
+      .then(setDept)
+      .catch(() => setDept(null));
+  }, []);
+  if (!dept?.department) return null;
+  return (
+    <div className="plan-chip">
+      <div className="plan-chip-seats" style={{ margin: '0 0 2px' }}>My department</div>
+      <div className="plan-chip-tier">{dept.department}</div>
+      <div className="plan-chip-seats" style={{ margin: '3px 0 0' }}>
+        {dept.members} {dept.members === 1 ? 'member' : 'members'}
+      </div>
+    </div>
+  );
+}
+
 function Shell() {
   const auth = useSelector((s: RootState) => s.auth);
   const dispatch = useDispatch();
@@ -190,7 +209,7 @@ function Shell() {
   const location = useLocation();
   const [theme, toggleTheme] = useTheme();
   const [palette, setPalette] = usePalette();
-  const [sub, setSub] = useState<SubscriptionDto | null>(null);
+  const [sub, setSub] = useState<SubscriptionView | null>(null);
   const [navOpen, setNavOpen] = useState(false);
 
   const role = (auth.role ?? 'EMPLOYEE') as Role;
@@ -240,13 +259,15 @@ function Shell() {
           <NotificationBell />
         </div>
 
-        {sub && (
-          <PlanChip sub={sub} days={days} linked={role === 'HR_ADMIN'} />
-        )}
+        {role === 'HR_ADMIN' && sub?.seats && <PlanChip sub={sub as SubscriptionDto} days={days} linked />}
+        {role === 'MANAGER' && <DepartmentChip />}
 
         <nav className="nav">
           {visible.map((item) => {
             const locked = Boolean(item.feature && sub && !sub.entitlements.includes(item.feature));
+            // Only HR can buy a plan, so only HR is shown what's locked; for everyone else a
+            // feature the organisation hasn't bought simply isn't there.
+            if (locked && role !== 'HR_ADMIN') return null;
             if (locked) {
               // Locked items stay VISIBLE. Hiding them means the customer never learns the
               // feature exists and never upgrades. docs/12-ui-modernisation.md §2.1.
@@ -293,7 +314,7 @@ function Shell() {
           <Route path="/payslips" element={<Payslips role={role} />} />
           <Route path="/notices" element={<Notices role={role} />} />
           <Route path="/at-risk/:id" element={<AtRisk />} />
-          <Route path="/plan" element={<Plan />} />
+          <Route path="/plan" element={role === 'HR_ADMIN' ? <Plan /> : <Navigate to="/" replace />} />
           <Route path="/okr" element={<OKR role={role} />} />
           <Route path="/ats" element={<Recruitment role={role} />} />
         </Routes>

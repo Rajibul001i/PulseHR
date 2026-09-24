@@ -50,6 +50,12 @@ export interface NewSalaryStructure {
   providentFundPct: number;
 }
 
+/** The NID hash never leaves the server; the last 4 digits are enough to recognise it. */
+function withoutNidHash(row: Row): Row {
+  const { nid_hash: _hash, ...rest } = row;
+  return rest;
+}
+
 export class Repo {
   constructor(
     private readonly orgId: string,
@@ -77,6 +83,10 @@ export class Repo {
 
   /** BUG-06 / F2.4 · US-11 — `q` filters name, code, designation and department. */
   async listEmployees(q?: string): Promise<Row[]> {
+    return (await this.listEmployeesRaw(q)).map(withoutNidHash);
+  }
+
+  private async listEmployeesRaw(q?: string): Promise<Row[]> {
     if (!q) {
       return all(
         `SELECT e.*, d.name AS department_name
@@ -107,7 +117,7 @@ export class Repo {
   }
 
   async getEmployee(id: string): Promise<Row | undefined> {
-    return one(
+    const row = await one(
       `SELECT e.*, d.name AS department_name
          FROM employee e
          LEFT JOIN department d ON d.id = e.department_id
@@ -115,6 +125,7 @@ export class Repo {
       id,
       this.orgId,
     );
+    return row && withoutNidHash(row);
   }
 
   /**
@@ -1341,6 +1352,8 @@ export class Repo {
     managerId: string | null;
     hireDate: string;
     gender: string | null;
+    nid?: { nidHash: string; nidLast4: string } | null;
+    phone?: string | null;
     salary: NewSalaryStructure;
     account: { email: string; role: 'EMPLOYEE' | 'MANAGER' | 'HR_ADMIN'; passwordHash: string } | null;
   }): Promise<string> {
@@ -1361,8 +1374,9 @@ export class Repo {
       }
       await run(
         `INSERT INTO employee (id, organisation_id, user_id, department_id, manager_id, employee_code,
-                               full_name, designation, gender, hire_date, employment_status, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?)`,
+                               full_name, designation, gender, hire_date, employment_status,
+                               nid_hash, nid_last4, phone, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?)`,
         employeeId,
         this.orgId,
         userId,
@@ -1373,6 +1387,9 @@ export class Repo {
         p.designation,
         p.gender,
         p.hireDate,
+        p.nid?.nidHash ?? null,
+        p.nid?.nidLast4 ?? null,
+        p.phone ?? null,
         nowIso(),
       );
       await this.insertSalaryStructure(employeeId, p.hireDate, p.salary);
@@ -1400,7 +1417,15 @@ export class Repo {
    *  attrition scorecard reads (F6 recent manager change). */
   async updateEmployment(
     employeeId: string,
-    changes: { designation?: string; departmentId?: string | null; managerId?: string | null; employeeCode?: string; gender?: string | null },
+    changes: {
+      designation?: string;
+      departmentId?: string | null;
+      managerId?: string | null;
+      employeeCode?: string;
+      gender?: string | null;
+      phone?: string;
+      nid?: { nidHash: string; nidLast4: string };
+    },
   ): Promise<void> {
     const before = await this.getEmployee(employeeId);
     if (!before) return;
@@ -1412,7 +1437,10 @@ export class Repo {
               department_id = CASE WHEN ? = 1 THEN ? ELSE department_id END,
               manager_id    = CASE WHEN ? = 1 THEN ? ELSE manager_id END,
               gender        = CASE WHEN ? = 1 THEN ? ELSE gender END,
-              manager_changed_at = CASE WHEN ? = 1 THEN ? ELSE manager_changed_at END
+              manager_changed_at = CASE WHEN ? = 1 THEN ? ELSE manager_changed_at END,
+              phone         = COALESCE(?, phone),
+              nid_hash      = COALESCE(?, nid_hash),
+              nid_last4     = COALESCE(?, nid_last4)
         WHERE id = ? AND organisation_id = ?`,
       changes.designation ?? null,
       changes.employeeCode ?? null,
@@ -1424,10 +1452,15 @@ export class Repo {
       changes.gender ?? null,
       managerChanged ? 1 : 0,
       businessDate(new Date()),
+      changes.phone ?? null,
+      changes.nid?.nidHash ?? null,
+      changes.nid?.nidLast4 ?? null,
       employeeId,
       this.orgId,
     );
-    await this.audit('UPDATE_EMPLOYMENT', 'employee', employeeId, changes);
+    // The audit log records THAT the NID changed, never the number or its hash.
+    const { nid, ...logged } = changes;
+    await this.audit('UPDATE_EMPLOYMENT', 'employee', employeeId, nid ? { ...logged, nid: 'updated' } : logged);
   }
 
   private async insertSalaryStructure(employeeId: string, effectiveFrom: string, s: NewSalaryStructure): Promise<string> {

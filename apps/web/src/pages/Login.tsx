@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { post, tokens, type Role } from '../api';
 import { signedIn } from '../store';
 import { Logo } from '../components/Logo';
+import { AccountRecovery } from '../components/AccountRecovery';
 
 interface LoginResponse {
   accessToken: string;
@@ -19,7 +20,9 @@ interface ForgotResponse {
 export function Login() {
   const dispatch = useDispatch();
   const navigate = useNavigate();
-  const [mode, setMode] = useState<'login' | 'forgot'>('login');
+  // 'forgot' is recovery by employee ID, NID and SMS code; 'email' is the emailed reset link,
+  // kept for accounts with no employee record (an HR administrator's own login).
+  const [mode, setMode] = useState<'login' | 'forgot' | 'email'>('login');
   const [email, setEmail] = useState('hr@meridian.test');
   const [password, setPassword] = useState('Passw0rd!');
   const [error, setError] = useState<string | null>(null);
@@ -119,6 +122,16 @@ export function Login() {
             </p>
             {error && <p className="error content-in">{error}</p>}
           </form>
+        ) : mode === 'forgot' ? (
+          <AccountRecovery
+            onBack={backToLogin}
+            onUseEmail={() => setMode('email')}
+            onDone={(address) => {
+              setEmail(address);
+              setPassword('');
+              backToLogin();
+            }}
+          />
         ) : (
           <form className="card" onSubmit={submitForgot}>
             <p className="page-sub" style={{ margin: '0 0 14px' }}>

@@ -1209,6 +1209,73 @@ console.log('\nShifts, duty times and attendance corrections');
   }
 }
 
+/* ------------------ password recovery and plan visibility ------------------ */
+console.log('Password recovery (employee ID → NID → SMS code) and plan visibility');
+{
+  const orgs = (await call('/auth/organisations')).body ?? [];
+  const meridian = orgs.find((o) => /^Meridian/.test(o.name))?.id;
+  const recEmail = `recover.${runTag}@meridian.test`;
+  const recCode = `REC-${runTag}`.slice(0, 20);
+  const badNid = await call('/employees', { method: 'POST', token: hrA.accessToken, body: { employeeCode: `BADNID-${runTag}`.slice(0, 20), fullName: 'Bad Nid', designation: 'X', hireDate, salary: { basic: 1000 }, nid: '12345' } });
+  expect('REC-01', 'F1.4', 'An NID that is not 10, 13 or 17 digits is refused', badNid.status === 400, `got ${badNid.status}`);
+  const made = await call('/employees', {
+    method: 'POST',
+    token: hrA.accessToken,
+    body: { employeeCode: recCode, fullName: 'Rafiq Islam', designation: 'Machine Operator', hireDate, salary: { basic: 12000 }, nid: '1987654321', phone: '01819000111', account: { email: recEmail, role: 'EMPLOYEE', temporaryPassword: 'Welcome123' } },
+  });
+  const listed = (await call('/employees', { token: hrA.accessToken })).body ?? [];
+  const rafiq = listed.find((e) => e.employee_code === recCode);
+  expect('REC-01', 'F1.4 P1-4', 'HR records an NID and phone; only the last 4 NID digits are kept readable', made.status === 201 && rafiq?.nid_last4 === '4321' && rafiq?.phone === '01819000111', `got ${made.status} ${rafiq?.nid_last4}`);
+  expect('REC-01', 'P1-4', 'The NID hash is never sent to the browser', listed.length > 0 && listed.every((e) => !('nid_hash' in e)), 'nid_hash present');
+
+  const unknown = await call('/auth/recovery/start', { method: 'POST', body: { organisationId: meridian, employeeCode: 'NOPE-0000' } });
+  expect('REC-02', 'F1.4', 'An unknown employee ID is refused', unknown.status === 404, `got ${unknown.status}`);
+  const start = await call('/auth/recovery/start', { method: 'POST', body: { organisationId: meridian, employeeCode: recCode.toLowerCase() } });
+  const token = start.body?.recoveryToken;
+  expect('REC-02', 'F1.4', 'A known employee ID (any case) starts a recovery', start.status === 200 && !!token, `got ${start.status}`);
+  const skip = await call('/auth/recovery/otp', { method: 'POST', body: { recoveryToken: token, code: '123456' } });
+  expect('REC-02', 'F1.4', 'The SMS step cannot be reached without passing the NID step', skip.status === 409, `got ${skip.status}`);
+  const wrongNid = await call('/auth/recovery/nid', { method: 'POST', body: { recoveryToken: token, nidLast4: '0000' } });
+  expect('REC-03', 'F1.4', 'Wrong NID digits are refused and the tries left are shown', wrongNid.status === 400 && /4 tries left/.test(wrongNid.body?.error ?? ''), `got ${wrongNid.status} ${wrongNid.body?.error}`);
+  const sent = await call('/auth/recovery/nid', { method: 'POST', body: { recoveryToken: token, nidLast4: '4321' } });
+  expect('REC-03', 'F1.4', 'The right NID digits send a code to the masked phone on file', sent.status === 200 && sent.body?.phone === '+88018•••••111' && /^\d{6}$/.test(sent.body?.demoOtp ?? ''), `got ${sent.status} ${JSON.stringify(sent.body)}`);
+  const early = await call('/auth/recovery/resend', { method: 'POST', body: { recoveryToken: token } });
+  expect('REC-04', 'F1.4', 'A new code cannot be requested within 60 seconds', early.status === 429, `got ${early.status}`);
+  const wrongOtp = await call('/auth/recovery/otp', { method: 'POST', body: { recoveryToken: token, code: sent.body?.demoOtp === '000000' ? '111111' : '000000' } });
+  expect('REC-04', 'F1.4', 'A wrong code is refused', wrongOtp.status === 400, `got ${wrongOtp.status}`);
+  const verified = await call('/auth/recovery/otp', { method: 'POST', body: { recoveryToken: token, code: sent.body?.demoOtp } });
+  expect('REC-04', 'F1.4', 'The right code issues a reset token and names the sign-in email', verified.status === 200 && !!verified.body?.resetToken && verified.body?.email === recEmail, `got ${verified.status}`);
+  const replay = await call('/auth/recovery/otp', { method: 'POST', body: { recoveryToken: token, code: sent.body?.demoOtp } });
+  expect('REC-04', 'F1.4', 'A used recovery cannot be replayed', replay.status === 409, `got ${replay.status}`);
+  const reset = await call('/auth/reset-password', { method: 'POST', body: { token: verified.body?.resetToken, password: 'Recovered123' } });
+  const oldPw = await call('/auth/login', { method: 'POST', body: { email: recEmail, password: 'Welcome123' } });
+  const newPw = await call('/auth/login', { method: 'POST', body: { email: recEmail, password: 'Recovered123' } });
+  expect('REC-05', 'F1.4', 'The new password works and the old one no longer does', reset.status === 200 && oldPw.status === 401 && newPw.status === 200, `reset ${reset.status}, old ${oldPw.status}, new ${newPw.status}`);
+
+  const lockStart = await call('/auth/recovery/start', { method: 'POST', body: { organisationId: meridian, employeeCode: recCode } });
+  let last;
+  for (let i = 0; i < 5; i++) last = await call('/auth/recovery/nid', { method: 'POST', body: { recoveryToken: lockStart.body?.recoveryToken, nidLast4: '9999' } });
+  const afterLock = await call('/auth/recovery/nid', { method: 'POST', body: { recoveryToken: lockStart.body?.recoveryToken, nidLast4: '4321' } });
+  expect('REC-06', 'F1.4', 'Five wrong NID tries lock the recovery, even against the right digits after', last?.status === 429 && afterLock.status === 429, `got ${last?.status} then ${afterLock.status}`);
+  const starts = [];
+  for (let i = 0; i < 4; i++) starts.push((await call('/auth/recovery/start', { method: 'POST', body: { organisationId: meridian, employeeCode: recCode } })).status);
+  expect('REC-06', 'F1.4', 'An account can start at most 5 recoveries an hour', starts.slice(0, 3).every((s) => s === 200) && starts[3] === 429, `got ${starts.join(',')}`);
+
+  const mgrTok = (await login('shabnam.rahman@meridian.test')).body?.accessToken;
+  const empTok = (await login('imran.hossain@meridian.test')).body?.accessToken;
+  const subHr = (await call('/subscription', { token: hrA.accessToken })).body;
+  const subMgr = (await call('/subscription', { token: mgrTok })).body;
+  const subEmp = (await call('/subscription', { token: empTok })).body;
+  expect('VIS-01', 'Plan visibility', 'HR sees the plan, seats and price', !!subHr?.tier && !!subHr?.seats && subHr?.pricePaisa > 0, JSON.stringify(Object.keys(subHr ?? {})));
+  expect('VIS-01', 'Plan visibility', 'Managers and employees get only the organisation name and entitlements', [subMgr, subEmp].every((b) => b && !('seats' in b) && !('tier' in b) && !('pricePaisa' in b) && Array.isArray(b.entitlements)), `${Object.keys(subMgr ?? {})} / ${Object.keys(subEmp ?? {})}`);
+  const deptMgr = await call('/me/department', { token: mgrTok });
+  const deptEmp = await call('/me/department', { token: empTok });
+  expect('VIS-02', 'Plan visibility', "A manager sees their department's name and member count", deptMgr.status === 200 && deptMgr.body?.department === 'Engineering' && deptMgr.body?.members > 0, `got ${deptMgr.status} ${JSON.stringify(deptMgr.body)}`);
+  expect('VIS-02', 'Plan visibility', 'An employee cannot read the department summary', deptEmp.status === 403, `got ${deptEmp.status}`);
+  const invEmp = await call('/subscription/invoices', { token: empTok });
+  expect('VIS-02', 'Plan visibility', 'An employee cannot read invoices', invEmp.status === 403, `got ${invEmp.status}`);
+}
+
 /* ---------------------------------------------------------------------- */
 console.log(`\n${checks} checks, ${findings.length} defects found\n`);
 for (const f of findings) {

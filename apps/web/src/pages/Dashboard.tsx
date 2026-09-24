@@ -7,7 +7,7 @@ import {
   type AtRiskRow,
   type LeaveRequestDto,
   type Me,
-  type SubscriptionDto,
+  type SubscriptionView,
   type UpgradeRequired,
 } from '../api';
 import { StatSkeleton, TableSkeleton, EmptyState, UpgradePrompt } from '../components/Feedback';
@@ -19,7 +19,7 @@ export function Dashboard({
   subscription,
 }: {
   role: string;
-  subscription: SubscriptionDto | null;
+  subscription: SubscriptionView | null;
 }) {
   const toast = useToast();
   const [me, setMe] = useState<Me | null>(null);
@@ -94,7 +94,7 @@ export function Dashboard({
         {subscription && ` · ${subscription.organisation}`}
       </p>
 
-      {subscription?.seats.approachingLimit && (
+      {subscription?.seats?.approachingLimit && (
         <div className="banner warn">
           <strong>{subscription.seats.remaining} seat
           {subscription.seats.remaining === 1 ? '' : 's'} remaining.</strong>{' '}

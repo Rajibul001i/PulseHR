@@ -14,6 +14,8 @@ interface Employee {
   department_name: string | null;
   manager_id: string | null;
   gender: string | null;
+  nid_last4: string | null;
+  phone: string | null;
   hire_date: string;
   employment_status: 'ACTIVE' | 'RESIGNED' | 'TERMINATED';
   separation_date: string | null;
@@ -96,6 +98,8 @@ function AddEmployee({
     managerId: '',
     hireDate: today(),
     gender: '',
+    nid: '',
+    phone: '',
   });
   const [salary, setSalary] = useState<SalaryForm>(EMPTY_SALARY);
   const [withLogin, setWithLogin] = useState(true);
@@ -111,6 +115,8 @@ function AddEmployee({
         departmentId: form.departmentId || null,
         managerId: form.managerId || null,
         gender: form.gender || null,
+        nid: form.nid || null,
+        phone: form.phone || null,
         salary: salaryPayload(salary),
         account: withLogin ? account : null,
       });
@@ -169,6 +175,21 @@ function AddEmployee({
             <option value="F">Female</option>
             <option value="M">Male</option>
           </select>
+        </div>
+      </div>
+      <div className="row" style={{ marginTop: 10 }}>
+        <div>
+          <label htmlFor="ne-nid">National ID (NID)</label>
+          <input id="ne-nid" value={form.nid} onChange={(e) => setForm({ ...form, nid: e.target.value.replace(/\D/g, '') })} inputMode="numeric" pattern="\d{10}|\d{13}|\d{17}" title="10, 13 or 17 digits" placeholder="10, 13 or 17 digits" />
+        </div>
+        <div>
+          <label htmlFor="ne-phone">Mobile number</label>
+          <input id="ne-phone" value={form.phone} onChange={set('phone')} inputMode="tel" placeholder="01712345678" />
+        </div>
+        <div style={{ flex: 2, alignSelf: 'end' }}>
+          <p className="stat-note" style={{ margin: 0 }}>
+            Used to reset a forgotten password: the last 4 NID digits confirm who it is, and the code goes to this number. Only the last 4 digits of the NID are kept readable.
+          </p>
         </div>
       </div>
 
@@ -268,6 +289,20 @@ function ManageEmployee({
     }
   }
 
+  const [recovery, setRecovery] = useState({ nid: '', phone: employee.phone ?? '' });
+  const saveRecovery = async (e: FormEvent) => {
+    e.preventDefault();
+    const ok = await run(
+      () =>
+        post(`/employees/${employee.id}/employment`, {
+          ...(recovery.nid ? { nid: recovery.nid } : {}),
+          ...(recovery.phone && recovery.phone !== employee.phone ? { phone: recovery.phone } : {}),
+        }),
+      'Password recovery details saved.',
+    );
+    if (ok) setRecovery((r) => ({ ...r, nid: '' }));
+  };
+
   const saveEmployment = (e: FormEvent) => {
     e.preventDefault();
     void run(
@@ -362,6 +397,40 @@ function ManageEmployee({
           </div>
         )}
       </form>
+
+      {active && employee.user_id && (
+        <>
+          <h3>Password recovery details</h3>
+          <form className="row" onSubmit={saveRecovery}>
+            <div>
+              <label htmlFor="me-nid">National ID (NID)</label>
+              <input
+                id="me-nid"
+                value={recovery.nid}
+                onChange={(e) => setRecovery({ ...recovery, nid: e.target.value.replace(/\D/g, '') })}
+                inputMode="numeric"
+                pattern="\d{10}|\d{13}|\d{17}"
+                title="10, 13 or 17 digits"
+                placeholder={employee.nid_last4 ? `On file: ending ${employee.nid_last4}` : 'None on file'}
+              />
+            </div>
+            <div>
+              <label htmlFor="me-phone">Mobile number</label>
+              <input id="me-phone" value={recovery.phone} onChange={(e) => setRecovery({ ...recovery, phone: e.target.value })} inputMode="tel" placeholder="None on file" />
+            </div>
+            <div style={{ flex: 0, minWidth: 90 }}>
+              <button className="primary" disabled={!recovery.nid && (recovery.phone || '') === (employee.phone ?? '')}>
+                Save
+              </button>
+            </div>
+          </form>
+          {(!employee.nid_last4 || !employee.phone) && (
+            <p className="stat-note">
+              {employee.full_name} can't reset a forgotten password until both an NID and a mobile number are on file.
+            </p>
+          )}
+        </>
+      )}
 
       <h3>Salary history</h3>
       <p className="stat-note" style={{ marginTop: -6 }}>

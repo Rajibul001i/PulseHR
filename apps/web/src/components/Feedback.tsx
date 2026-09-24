@@ -9,8 +9,10 @@
  */
 
 import type { ReactNode } from 'react';
+import { useSelector } from 'react-redux';
 import { Link } from 'react-router-dom';
 import type { Tier, UpgradeRequired } from '../api';
+import type { RootState } from '../store';
 
 /** Skeleton rows shaped like the table that is loading. */
 export function TableSkeleton({ rows = 5, cols = 4 }: { rows?: number; cols?: number }) {
@@ -83,6 +85,16 @@ const TIER_LABEL: Record<Tier, string> = {
  */
 export function UpgradePrompt({ detail }: { detail: UpgradeRequired }) {
   const required = detail.requiredTier ?? detail.upgrade?.tier;
+  const isHr = useSelector((s: RootState) => s.auth.role) === 'HR_ADMIN';
+  // Plans are HR's to buy; everyone else is told who to ask, not what it costs.
+  if (!isHr) {
+    return (
+      <div className="upgrade-card">
+        <h2 style={{ marginTop: 0 }}>{detail.featureLabel ?? 'This feature'} isn't available</h2>
+        <p className="notice">It isn't part of your organisation's PulseHR plan. Ask your HR administrator if you need it.</p>
+      </div>
+    );
+  }
   return (
     <div className="upgrade-card">
       <div className="upgrade-badge">{required ? TIER_LABEL[required] : 'Upgrade'}</div>

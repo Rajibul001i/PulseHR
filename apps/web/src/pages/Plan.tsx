@@ -60,7 +60,8 @@ export function Plan() {
 
   async function load() {
     try {
-      const [s, inv] = await Promise.all([fetchSubscription(), get<InvoiceDto[]>('/subscription/invoices')]);
+      // This screen is HR_ADMIN only, and HR gets the full subscription.
+      const [s, inv] = await Promise.all([fetchSubscription() as Promise<SubscriptionDto>, get<InvoiceDto[]>('/subscription/invoices')]);
       setSub(s);
       setInvoices(inv);
     } catch (e) {
