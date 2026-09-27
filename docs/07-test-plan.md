@@ -15,7 +15,7 @@ stay. What is missing is what each level actually *runs*, and an automated gate.
 | **Integration** | Grey-box | `scripts/smoke.mjs` | ✅ **30 checks passing** |
 | **System** | Black-box | End-to-end flows via the API | ✅ covered by smoke and the regression suite |
 | **Acceptance** | Scenario | HR-manager scenarios per increment | Increment 2 onward; each screen also driven in Chromium (Playwright) |
-| **Regression** | Automated | `scripts/bughunt.mjs`, **157 checks**, in CI on every push and PR, on SQLite and PostgreSQL 16 | ✅ `.github/workflows/ci.yml` |
+| **Regression** | Automated | `scripts/bughunt.mjs`, **163 checks**, in CI on every push and PR, on SQLite and PostgreSQL 16 | ✅ `.github/workflows/ci.yml` |
 | **Performance** | Load | Seeded volume benchmarks | Increment 4 |
 | **Security** | Black + white | Authn/authz, injection, tenancy | ✅ partly in smoke |
 
@@ -102,7 +102,7 @@ both rejected by trigger, and the row is unchanged afterwards. `scripts/verify-l
 proves the database itself refuses overlapping approved leave (an exclusion constraint on
 PostgreSQL, triggers on SQLite).
 
-## 3a. Regression suite — 157 checks
+## 3a. Regression suite — 163 checks
 
 `scripts/bughunt.mjs`, run against a freshly seeded API. Every defect ever found and every
 function closed since has a check here, so nothing fixed can quietly break again. CI fails
@@ -115,6 +115,7 @@ unless it prints `0 defects found`.
 | Shifts and corrections SHIFT-, CORR- | 29 | Shift definitions and assignment, duty time and roster, lateness and overtime by shift, correction requests, approval, direct fixes, department scope, closed payroll months |
 | Password recovery REC-01 to REC-06 | 15 | Employee ID → last 4 NID digits → SMS code → new password; wrong tries, locking, resend delay, hourly limit, replay; NID stored as hash + last 4 and never returned |
 | Plan visibility VIS-01, VIS-02 | 5 | Plan, seats and price reach HR only; a manager sees their department's name and size; employees are refused |
+| Leave approval scope BUG-42 | 6 | A manager's queue is their own department plus their own requests, each named; they cannot decide another department's leave or their own; HR sees all |
 
 ## 4. Performance testing — a real load model
 
@@ -166,7 +167,7 @@ reviewer approving code that does not compile is a normal Friday.
 4. `npm run build` — the frontend must build
 5. Seed, run the worker jobs (payroll, scoring, absences), start the API
 6. `scripts/smoke.mjs` — 30 checks
-7. `scripts/bughunt.mjs` — 157 checks, must print `0 defects found`
+7. `scripts/bughunt.mjs` — 163 checks, must print `0 defects found`
 8. `scripts/verify-leave-overlap.mjs`
 9. `npm audit --audit-level=high`
 
@@ -203,6 +204,7 @@ No increment is released until:
 | F1.4 password recovery | bughunt REC-02 to REC-06 |
 | P1-4 NID never exposed | bughunt REC-01 "The NID hash is never sent to the browser" |
 | Plan data for HR only | bughunt VIS-01, VIS-02 |
+| Leave approval scope | bughunt BUG-42 |
 | F3 shifts, lateness, overtime | `shift.test.ts`; bughunt SHIFT-01 to SHIFT-03 |
 | F3 attendance corrections | bughunt CORR-01 to CORR-04 |
 | F3.3 absence marking | `attendance.test.ts`; bughunt GAP-10 |

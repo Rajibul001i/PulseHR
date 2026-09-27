@@ -122,52 +122,57 @@ export function Leave({ role }: { role: string }) {
         </div>
       )}
 
-      <h2>Request leave</h2>
-      <form className="card" onSubmit={submit}>
-        <div className="row">
-          <div>
-            <label htmlFor="lt">Type</label>
-            <select
-              id="lt"
-              value={form.leaveType}
-              onChange={(e) => setForm({ ...form, leaveType: e.target.value as typeof form.leaveType })}
-            >
-              {TYPES.map((t) => (
-                <option key={t} value={t}>
-                  {t}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label htmlFor="sd">From</label>
-            <input
-              id="sd"
-              type="date"
-              value={form.startDate}
-              onChange={(e) => setForm({ ...form, startDate: e.target.value })}
-              required
-            />
-          </div>
-          <div>
-            <label htmlFor="ed">To</label>
-            <input
-              id="ed"
-              type="date"
-              value={form.endDate}
-              onChange={(e) => setForm({ ...form, endDate: e.target.value })}
-              required
-            />
-          </div>
-          <div style={{ flex: 2 }}>
-            <label htmlFor="rs">Reason</label>
-            <input id="rs" value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} />
-          </div>
-          <div style={{ flex: 0, minWidth: 110 }}>
-            <button className="primary">Submit</button>
-          </div>
-        </div>
-      </form>
+      {/* An HR administrator's own login has no employee record, so no leave of its own. */}
+      {myEmployeeId && (
+        <>
+          <h2>Request leave</h2>
+          <form className="card" onSubmit={submit}>
+            <div className="row">
+              <div>
+                <label htmlFor="lt">Type</label>
+                <select
+                  id="lt"
+                  value={form.leaveType}
+                  onChange={(e) => setForm({ ...form, leaveType: e.target.value as typeof form.leaveType })}
+                >
+                  {TYPES.map((t) => (
+                    <option key={t} value={t}>
+                      {t}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label htmlFor="sd">From</label>
+                <input
+                  id="sd"
+                  type="date"
+                  value={form.startDate}
+                  onChange={(e) => setForm({ ...form, startDate: e.target.value })}
+                  required
+                />
+              </div>
+              <div>
+                <label htmlFor="ed">To</label>
+                <input
+                  id="ed"
+                  type="date"
+                  value={form.endDate}
+                  onChange={(e) => setForm({ ...form, endDate: e.target.value })}
+                  required
+                />
+              </div>
+              <div style={{ flex: 2 }}>
+                <label htmlFor="rs">Reason</label>
+                <input id="rs" value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} />
+              </div>
+              <div style={{ flex: 0, minWidth: 110 }}>
+                <button className="primary">Submit</button>
+              </div>
+            </div>
+          </form>
+        </>
+      )}
 
       <h2>{canDecide ? 'Requests' : 'My requests'}</h2>
       {requests === null ? (
@@ -187,6 +192,7 @@ export function Leave({ role }: { role: string }) {
         <table>
           <thead>
             <tr>
+              {canDecide && <th>Employee</th>}
               <th>Type</th>
               <th>From</th>
               <th>To</th>
@@ -199,6 +205,12 @@ export function Leave({ role }: { role: string }) {
           <tbody>
             {requests.map((r) => (
               <tr key={r.id}>
+                {canDecide && (
+                  <td>
+                    {r.employeeId === myEmployeeId ? 'Me' : r.employeeName}
+                    {r.departmentName && <div className="stat-note">{r.departmentName}</div>}
+                  </td>
+                )}
                 <td>{r.leaveType}</td>
                 <td>{r.startDate}</td>
                 <td>{r.endDate}</td>
@@ -208,7 +220,7 @@ export function Leave({ role }: { role: string }) {
                   <span className={`badge ${r.status}`}>{r.status}</span>
                 </td>
                 <td className="num">
-                  {canDecide && r.status === 'PENDING' && (
+                  {canDecide && r.status === 'PENDING' && r.employeeId !== myEmployeeId && (
                     <>
                       <button className="sm" onClick={() => decide(r.id, 'APPROVE')}>
                         Approve

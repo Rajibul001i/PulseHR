@@ -2,7 +2,7 @@
 
 Checked on 24 Sep 2026: every claim in *PulseHR_Project_Report* and *PulseHR_Report_Presentation*
 against the code on `master` (b7898e7). After the gaps below were closed, and shifts and
-attendance corrections were added: 130/130 unit tests, typecheck clean, 30/30 smoke and 157
+attendance corrections were added: 130/130 unit tests, typecheck clean, 30/30 smoke and 163
 bug-hunt checks with 0 defects, on SQLite and on PostgreSQL 16.
 
 ## Fixed in this pass
@@ -68,7 +68,7 @@ but none of those checks exists yet.
 
 - **Screens:** 15, not 13. Add **People** (HR: employee directory, add, edit, salary, separation, departments) and **Shifts** (managers and HR: shift definitions and who works which shift).
 - **Unit tests:** 130, not 107 (23 new: 8 bias audit, 8 absence marking, 7 shift rules).
-- **Regression checks:** 157, not 64 (the 7 AI-assistant checks were removed; 51 gap-closure, 29 shift and correction, and 20 password-recovery and plan-visibility checks were added).
+- **Regression checks:** 163, not 64 (the 7 AI-assistant checks were removed; 51 gap-closure, 29 shift and correction, 20 password-recovery and plan-visibility, and 6 leave-approval-scope checks were added).
 - **Migrations and tables:** 15 forward-only migrations and 37 tables (added `key_result_update`, `bias_audit_report`, `shift`, `shift_assignment`, `attendance_correction`, `account_recovery`).
 - **F1.4 password reset:** by employee ID, the last 4 NID digits and a one-time code sent by SMS to the phone on file; the emailed link remains only for accounts with no employee record.
 - **Role visibility:** plan, seats and billing are shown to HR administrators only. A department manager sees their department and its head count; an employee sees neither.

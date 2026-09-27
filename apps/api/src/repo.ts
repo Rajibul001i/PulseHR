@@ -418,22 +418,39 @@ export class Repo {
     );
   }
 
-  async leaveRequests(filter: { employeeId?: string; status?: string } = {}): Promise<LeaveRequest[]> {
-    const clauses = ['organisation_id = ?'];
+  /** Leave requests with the requester's name. `departmentId` limits them to one department
+   *  (a manager's queue) plus `alsoEmployeeId`'s own requests. */
+  async leaveRequests(
+    filter: { employeeId?: string; status?: string; departmentId?: string | null; alsoEmployeeId?: string } = {},
+  ): Promise<(LeaveRequest & { employeeName: string; departmentName: string | null })[]> {
+    const clauses = ['lr.organisation_id = ?'];
     const params: unknown[] = [this.orgId];
     if (filter.employeeId) {
-      clauses.push('employee_id = ?');
+      clauses.push('lr.employee_id = ?');
       params.push(filter.employeeId);
     }
+    if (filter.departmentId !== undefined) {
+      clauses.push('(e.department_id = ? OR lr.employee_id = ?)');
+      params.push(filter.departmentId ?? '__none__', filter.alsoEmployeeId ?? '__none__');
+    }
     if (filter.status) {
-      clauses.push('status = ?');
+      clauses.push('lr.status = ?');
       params.push(filter.status);
     }
     const rows = await all(
-      `SELECT * FROM leave_request WHERE ${clauses.join(' AND ')} ORDER BY created_at DESC`,
+      `SELECT lr.*, e.full_name AS employee_name, d.name AS department_name
+         FROM leave_request lr
+         JOIN employee e ON e.id = lr.employee_id
+         LEFT JOIN department d ON d.id = e.department_id
+        WHERE ${clauses.join(' AND ')}
+        ORDER BY lr.created_at DESC`,
       ...params,
     );
-    return rows.map(toLeaveRequest);
+    return rows.map((r) => ({
+      ...toLeaveRequest(r),
+      employeeName: String(r.employee_name),
+      departmentName: r.department_name ? String(r.department_name) : null,
+    }));
   }
 
   async getLeaveRequest(id: string): Promise<LeaveRequest | undefined> {

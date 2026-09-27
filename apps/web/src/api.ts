@@ -199,6 +199,9 @@ export interface Me {
 }
 
 export interface LeaveRequestDto {
+  /** The requester, for the approval queue. */
+  employeeName?: string;
+  departmentName?: string | null;
   id: string;
   employeeId: string;
   leaveType: string;

@@ -6,6 +6,23 @@ as a changelog.
 
 ---
 
+## Session 11 — 27 September 2026
+
+### Leave approval limited to the manager's department, and two screen fixes
+
+Found while walking every screen as HR, a manager and an employee for the project video.
+
+- **BUG-42 (High):** a manager could approve or reject any employee's leave, including
+  other departments' and their own, and the queue didn't name the employee. The queue is
+  now the manager's department plus their own requests, each row names the employee, and a
+  decision needs the same department rule attendance and shifts already used. 6 checks.
+- **BUG-43:** Recruitment is hidden from employees (the API already refused them).
+- **BUG-44:** the HR administrator's own login no longer sees a leave request form.
+
+130 unit, 30 smoke and 163 regression checks pass on SQLite and PostgreSQL 16.
+
+---
+
 ## Session 10 — 24 September 2026
 
 ### Documentation and test reports brought up to date

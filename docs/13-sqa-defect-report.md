@@ -1030,3 +1030,42 @@ is now in migration 013 (with triggers on SQLite). Row-Level Security is still o
 **Re-verified:** 130 unit tests, 30 smoke checks, 157 regression checks with 0 defects, and
 the leave-overlap check, on SQLite and on PostgreSQL 16; the pg-mem migration check passes;
 typecheck clean across all workspaces.
+
+---
+
+## 18. Addendum — 27 September 2026 — walking every screen as each role
+
+Recording a walkthrough of all three roles meant using every screen as HR, a manager and an
+employee in turn. Three more defects surfaced.
+
+| # | Severity | Defect |
+|---|---|---|
+| BUG-42 | **High** | A manager could approve or reject any employee's leave, including other departments' and their own |
+| BUG-43 | Low | Employees saw the Recruitment screen with an empty applicant pipeline |
+| BUG-44 | Low | The HR administrator's own login was offered a leave request form it could not use |
+
+### BUG-42 — Severity: High · leave approval was not limited to the manager's department
+
+`GET /leave/requests` gave every manager the whole organisation's queue, and
+`POST /leave/requests/:id/decision` checked only the role. So a manager could approve or
+reject leave for someone in another department, and could approve their own request. The
+queue also didn't say whose request each row was, so a manager couldn't tell. **Fix:** the
+queue is limited to the manager's department plus their own requests, and each row names
+the employee and department. A decision now needs `canManageEmployee` (same department,
+never yourself), the same rule attendance corrections and shifts already used. HR still
+sees and decides everything. **Verified:** BUG-42, six checks, on SQLite and PostgreSQL 16.
+
+### BUG-43 — Severity: Low · employees shown the applicant pipeline screen
+
+The API already refused applicant data to employees, so nothing leaked, but the screen
+showed them the vacancies table and an empty pipeline as if it were theirs to use.
+**Fix:** Recruitment is shown to managers and HR only, and the route redirects employees.
+
+### BUG-44 — Severity: Low · leave form for an account with no employee record
+
+An HR administrator's own login has no employee record, so it has no leave balance, yet
+the Leave screen offered it a request form that could only fail. **Fix:** the form is shown
+only to users with an employee record.
+
+**Re-verified:** 130 unit tests, 30 smoke checks, 163 regression checks with 0 defects, and
+the leave-overlap check, on SQLite and PostgreSQL 16.

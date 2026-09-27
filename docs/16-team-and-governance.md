@@ -149,7 +149,7 @@ regression suite is green.
 | 3 — Payroll, OKR, ATS, Noticeboard | 12 Aug 2026 | F5.3 generated PDF. On 24 Sep: payroll by department, notice search |
 | 4 — Attrition Risk | 12 Aug 2026 | On 24 Sep: score contests, quarterly bias audit, department risk view |
 
-**Verification today:** 130 unit tests, 30 smoke checks, 157 regression checks with 0
+**Verification today:** 130 unit tests, 30 smoke checks, 163 regression checks with 0
 defects, on SQLite and PostgreSQL 16 (see [`07-test-plan.md`](07-test-plan.md)).
 
 ---

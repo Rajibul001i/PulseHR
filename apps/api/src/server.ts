@@ -1195,7 +1195,14 @@ app.get(
       return;
     }
     const status = typeof req.query.status === 'string' ? req.query.status : undefined;
-    res.json(await repo.leaveRequests(status ? { status } : {}));
+    // A manager's queue is their own department (and their own requests); HR sees everyone's.
+    const dept = await managerDepartment(repo, p);
+    res.json(
+      await repo.leaveRequests({
+        ...(status ? { status } : {}),
+        ...(dept !== undefined ? { departmentId: dept, alsoEmployeeId: p.employeeId ?? undefined } : {}),
+      }),
+    );
   }),
 );
 
@@ -1335,6 +1342,23 @@ app.post(
       .parse(req.body);
     const repo = repoOf(req);
     const requestId = req.params.id!;
+
+    // Only the requester's manager (same department) or HR may decide, and nobody decides
+    // their own request. canManageEmployee enforces both.
+    const target = await repo.getLeaveRequest(requestId);
+    if (!target) {
+      res.status(404).json({ error: 'Not found' });
+      return;
+    }
+    if (!(await canManageEmployee(repo, req.principal!, target.employeeId))) {
+      res.status(403).json({
+        error:
+          target.employeeId === req.principal!.employeeId
+            ? 'You cannot decide your own leave request.'
+            : 'You can only decide leave for people in your own department.',
+      });
+      return;
+    }
 
     // US-19 (F4.2): "a rejection cannot be submitted without a reason." Enforced here, not
     // just in the UI -- a client-side-only check is not a check.

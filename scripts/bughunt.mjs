@@ -1276,6 +1276,28 @@ console.log('Password recovery (employee ID → NID → SMS code) and plan visib
   expect('VIS-02', 'Plan visibility', 'An employee cannot read invoices', invEmp.status === 403, `got ${invEmp.status}`);
 }
 
+/* --------------------- leave approval scope (BUG-42) --------------------- */
+console.log('Leave approval is limited to the manager\'s own department');
+{
+  const mgrL = (await login('shabnam.rahman@meridian.test')).body;
+  const salesL = (await login('shafiqul.islam@meridian.test')).body;
+  const engL = (await login('mahmudul.karim@meridian.test')).body;
+  const other = await call('/leave/requests', { method: 'POST', token: salesL.accessToken, body: { leaveType: 'CASUAL', startDate: '2026-11-10', endDate: '2026-11-10', reason: 'Scope check' } });
+  const own = await call('/leave/requests', { method: 'POST', token: mgrL.accessToken, body: { leaveType: 'CASUAL', startDate: '2026-11-12', endDate: '2026-11-12', reason: 'Scope check' } });
+  const team = await call('/leave/requests', { method: 'POST', token: engL.accessToken, body: { leaveType: 'CASUAL', startDate: '2026-11-11', endDate: '2026-11-11', reason: 'Scope check' } });
+  const queue = (await call('/leave/requests', { token: mgrL.accessToken })).body ?? [];
+  expect('BUG-42', 'F4.2', "A manager's queue holds only their department's requests and their own", queue.some((r) => r.id === team.body?.id) && queue.some((r) => r.id === own.body?.id) && !queue.some((r) => r.id === other.body?.id), `team ${queue.some((r) => r.id === team.body?.id)}, other ${queue.some((r) => r.id === other.body?.id)}`);
+  expect('BUG-42', 'F4.2', 'Each request in the queue names the employee', queue.find((r) => r.id === team.body?.id)?.employeeName === 'Mahmudul Karim', `got ${queue.find((r) => r.id === team.body?.id)?.employeeName}`);
+  const cross = await call(`/leave/requests/${other.body?.id}/decision`, { method: 'POST', token: mgrL.accessToken, body: { decision: 'APPROVE' } });
+  expect('BUG-42', 'F4.2', "A manager cannot decide leave in another department", cross.status === 403, `got ${cross.status}`);
+  const self = await call(`/leave/requests/${own.body?.id}/decision`, { method: 'POST', token: mgrL.accessToken, body: { decision: 'APPROVE' } });
+  expect('BUG-42', 'F4.2', 'A manager cannot approve their own leave', self.status === 403, `got ${self.status}`);
+  const ok = await call(`/leave/requests/${team.body?.id}/decision`, { method: 'POST', token: mgrL.accessToken, body: { decision: 'APPROVE' } });
+  expect('BUG-42', 'F4.2', 'A manager approves leave for someone in their own department', ok.status === 200, `got ${ok.status} ${JSON.stringify(ok.body)}`);
+  const hrQueue = (await call('/leave/requests', { token: hrA.accessToken })).body ?? [];
+  expect('BUG-42', 'F4.2', 'HR sees every department\'s requests', hrQueue.some((r) => r.id === other.body?.id), 'Sales request missing for HR');
+}
+
 /* ---------------------------------------------------------------------- */
 console.log(`\n${checks} checks, ${findings.length} defects found\n`);
 for (const f of findings) {

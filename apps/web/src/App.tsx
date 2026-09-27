@@ -145,7 +145,7 @@ const NAV: NavItem[] = [
   { to: '/payslips', label: 'Payslips', feature: 'payroll' },
   { to: '/notices', label: 'Noticeboard', feature: 'noticeboard' },
   { to: '/okr', label: 'Performance', feature: 'okr' },
-  { to: '/ats', label: 'Recruitment', feature: 'ats' },
+  { to: '/ats', label: 'Recruitment', feature: 'ats', roles: ['MANAGER', 'HR_ADMIN'] },
 ];
 
 /** The account-level summary shown in the sidebar, to HR_ADMIN only: it's their entry point
@@ -316,7 +316,7 @@ function Shell() {
           <Route path="/at-risk/:id" element={<AtRisk />} />
           <Route path="/plan" element={role === 'HR_ADMIN' ? <Plan /> : <Navigate to="/" replace />} />
           <Route path="/okr" element={<OKR role={role} />} />
-          <Route path="/ats" element={<Recruitment role={role} />} />
+          <Route path="/ats" element={role === 'EMPLOYEE' ? <Navigate to="/" replace /> : <Recruitment role={role} />} />
         </Routes>
       </main>
     </div>
