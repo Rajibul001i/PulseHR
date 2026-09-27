@@ -139,6 +139,7 @@ async function seedOrganisation(opts: {
   const employeeIds: string[] = [];
   const people: { name: string; employeeId: string; userId: string; department: string; hireDate: string }[] = [];
   let managerId: string | null = null;
+  const managerByDept = new Map<string, string>();
 
   // Sequential, not Promise.all -- a manager's employeeId must be committed before the next
   // profile in line can reference it as manager_id (see `if (isManager) managerId = ...`
@@ -190,7 +191,10 @@ async function seedOrganisation(opts: {
       `017${String(opts.seed % 100).padStart(2, '0')}${String(index + 1).padStart(6, '0')}`,
       nowIso(),
     );
-    if (isManager) managerId = employeeId;
+    if (isManager) {
+      managerId = employeeId;
+      managerByDept.set(profile.department, employeeId);
+    }
     employeeIds.push(employeeId);
     people.push({ name: profile.name, employeeId, userId, department: profile.department, hireDate });
 
@@ -291,6 +295,17 @@ async function seedOrganisation(opts: {
       body,
       hrUserId,
       nowIso(),
+    );
+  }
+
+  // Everyone reports to their own department's manager. Set after the loop: a department's
+  // manager can come after their reports in the profile list, and the running managerId
+  // above could also point into another department.
+  await run('UPDATE employee SET manager_id = NULL WHERE organisation_id = ?', orgId);
+  for (const [dept, mgrId] of managerByDept) {
+    await run(
+      'UPDATE employee SET manager_id = ? WHERE organisation_id = ? AND department_id = ? AND id <> ?',
+      mgrId, orgId, departments.get(dept)!, mgrId,
     );
   }
 

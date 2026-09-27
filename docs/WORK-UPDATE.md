@@ -19,7 +19,11 @@ Found while walking every screen as HR, a manager and an employee for the projec
 - **BUG-43:** Recruitment is hidden from employees (the API already refused them).
 - **BUG-44:** the HR administrator's own login no longer sees a leave request form.
 
-130 unit, 30 smoke and 163 regression checks pass on SQLite and PostgreSQL 16.
+- **BUG-45:** the demo data gave nobody a manager, so managers could not review their
+  team and two notification checks never ran. Everyone now reports to their department's
+  manager.
+
+130 unit, 30 smoke and 165 regression checks pass on SQLite and PostgreSQL 16.
 
 ---
 

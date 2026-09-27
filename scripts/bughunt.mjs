@@ -1166,8 +1166,9 @@ console.log('\nShifts, duty times and attendance corrections');
     expect('CORR-01', 'Corrections', 'An employee requests a correction; it waits for approval', req1.status === 201 && req1.body?.status === 'PENDING', `got ${req1.status} ${JSON.stringify(req1.body)}`);
     const again = await call('/attendance/corrections', { method: 'POST', token: nusrat.accessToken, body: { workDate: day, checkIn: '09:00', checkOut: '17:00', reason: 'Asking twice for the same day' } });
     expect('CORR-01', 'Corrections', 'Only one pending request per day', again.status === 409, `got ${again.status}`);
-    const hrNotes = await call('/notifications', { token: hrA.accessToken });
-    expect('CORR-01', 'Corrections', 'The approver is notified', (hrNotes.body ?? []).some((n) => n.type === 'CORRECTION_PENDING'), `got ${hrNotes.body?.length}`);
+    // Nusrat reports to Shabnam, so the request goes to her manager, not to HR.
+    const mgrNotes = await call('/notifications', { token: mgr.accessToken });
+    expect('CORR-01', 'Corrections', "The employee's manager is notified", (mgrNotes.body ?? []).some((n) => n.type === 'CORRECTION_PENDING'), `got ${mgrNotes.body?.length}`);
     const queue = await call('/attendance/corrections?status=PENDING', { token: mgr.accessToken });
     expect('CORR-01', 'Corrections', "The manager sees the request in their department's queue", (queue.body ?? []).some((c) => c.id === req1.body?.id), `got ${queue.body?.length}`);
     const byEmp = await call(`/attendance/corrections/${req1.body?.id}/decision`, { method: 'POST', token: emp.accessToken, body: { decision: 'APPROVE' } });

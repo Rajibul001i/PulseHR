@@ -1043,6 +1043,7 @@ employee in turn. Three more defects surfaced.
 | BUG-42 | **High** | A manager could approve or reject any employee's leave, including other departments' and their own |
 | BUG-43 | Low | Employees saw the Recruitment screen with an empty applicant pipeline |
 | BUG-44 | Low | The HR administrator's own login was offered a leave request form it could not use |
+| BUG-45 | Medium | The demo data gave nobody a manager, so manager features could not be shown and two checks never ran |
 
 ### BUG-42 — Severity: High · leave approval was not limited to the manager's department
 
@@ -1067,5 +1068,17 @@ An HR administrator's own login has no employee record, so it has no leave balan
 the Leave screen offered it a request form that could only fail. **Fix:** the form is shown
 only to users with an employee record.
 
-**Re-verified:** 130 unit tests, 30 smoke checks, 163 regression checks with 0 defects, and
+### BUG-45 — Severity: Medium · the demo data had no reporting lines
+
+`seed.ts` set each employee's manager to the last manager seen in the profile list. In
+every department the manager comes after their team, so every `manager_id` was empty (and
+could otherwise have pointed into another department). A manager therefore could not
+record a review score for their own team ("Not one of your reports"), leave requests
+notified HR instead of the manager, and two BUG-20 checks ("Manager is notified when a
+request enters their queue", "The manager's notification clears…") were silently skipped
+because they only run when someone has a manager. **Fix:** after all profiles are created,
+everyone in a department reports to that department's manager, and departments without a
+manager have none. CORR-01 now checks that the employee's manager is notified.
+
+**Re-verified:** 130 unit tests, 30 smoke checks, 165 regression checks with 0 defects, and
 the leave-overlap check, on SQLite and PostgreSQL 16.
