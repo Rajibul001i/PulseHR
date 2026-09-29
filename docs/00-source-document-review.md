@@ -584,7 +584,7 @@ SQA testing cycle…"*
 
 This is a **proposal**, dated 25 July 2026, for work not yet started. It reads as though the
 project is finished — and it directly contradicts the facing page, which is correctly in
-future tense (*"The team **will visit**…"*).
+future tense.
 
 **Fix:** convert the whole section to future tense. Rewritten section supplied in
 [`10-proposal-patches.md`](10-proposal-patches.md).

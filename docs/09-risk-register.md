@@ -13,7 +13,7 @@ retrospective."*
 | # | Risk | P | I | Exp | Mitigation | Owner |
 |---|---|---|---|---|---|---|
 | **R1** | **The AI module has no labelled training data**, so no model can be fitted during the project | 5 | 4 | **20** | Ship the expert-weighted scorecard (P0-4). The AI module is the final increment, so three increments of working software ship regardless. **Already mitigated by design.** | AI Engineer |
-| **R2** | Field research (2 org visits, 50 surveys, 2 interviews) slips or under-delivers, leaving weights unfounded | 4 | 4 | **16** | Start outreach in **week 1**, not week 3. Fall back to published attrition literature for weights, and say so. Target 2 interviews, accept 1. | Team Lead |
+| **R2** | The scorecard weights have no local evidence behind them, leaving them unfounded | 4 | 4 | **16** | Take the weights from published attrition research and say so in the specification, with the evidence that would justify changing them. | Team Lead |
 | **R3** | Statutory figures (leave rates, OT base, holidays) are wrong in the delivered engine | 3 | 5 | **15** | All statutory values are **configuration, not code**. One nominated member verifies every figure against the consolidated Act before submission. | SQA Lead |
 | **R4** | Scope: six modules in 8 weeks with 5 part-time student developers | 4 | 4 | **16** | Increment order puts Payroll and Leave first. OKR and ATS are the declared **cut line** if week 6 is behind. | Team Lead |
 | **R5** | Schema change in Increment 3 breaks the shared demo environment | 3 | 3 | 9 | Forward-only numbered migrations from day one (ADR-007). | DBA |
@@ -33,8 +33,9 @@ retrospective."*
 1. **R1 (20)** — mitigated by design. The honest cold-start answer is also the correct
    engineering one, and it converts the project's biggest weakness into its most defensible
    decision.
-2. **R2 (16)** and **R4 (16)** — both are schedule risks under the team's own control.
-   R2 needs action in week 1. R4 needs the cut line agreed **before** week 6, not during it.
+2. **R2 (16)** and **R4 (16)** — both are under the team's own control. R2 is met by
+   citing the source of every weight. R4 needs the cut line agreed **before** week 6, not
+   during it.
 3. **R3 (15)** and **R8 (15)** — one legal-accuracy risk, one ethical risk. Both are
    mitigated structurally (configuration; access control) rather than by promising care.
 
