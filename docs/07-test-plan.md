@@ -15,7 +15,7 @@ stay. What is missing is what each level actually *runs*, and an automated gate.
 | **Integration** | Grey-box | `scripts/smoke.mjs` | ✅ **30 checks passing** |
 | **System** | Black-box | End-to-end flows via the API | ✅ covered by smoke and the regression suite |
 | **Acceptance** | Scenario | HR-manager scenarios per increment | Increment 2 onward; each screen also driven in Chromium (Playwright) |
-| **Regression** | Automated | `scripts/bughunt.mjs`, **165 checks**, in CI on every push and PR, on SQLite and PostgreSQL 16 | ✅ `.github/workflows/ci.yml` |
+| **Regression** | Automated | `scripts/bughunt.mjs`, **166 checks**, in CI on every push and PR, on SQLite and PostgreSQL 16 | ✅ `.github/workflows/ci.yml` |
 | **Performance** | Load | Seeded volume benchmarks | Increment 4 |
 | **Security** | Black + white | Authn/authz, injection, tenancy | ✅ partly in smoke |
 
@@ -102,7 +102,7 @@ both rejected by trigger, and the row is unchanged afterwards. `scripts/verify-l
 proves the database itself refuses overlapping approved leave (an exclusion constraint on
 PostgreSQL, triggers on SQLite).
 
-## 3a. Regression suite — 165 checks
+## 3a. Regression suite — 166 checks
 
 `scripts/bughunt.mjs`, run against a freshly seeded API. Every defect ever found and every
 function closed since has a check here, so nothing fixed can quietly break again. CI fails
@@ -116,6 +116,7 @@ unless it prints `0 defects found`.
 | Password recovery REC-01 to REC-06 | 15 | Employee ID → last 4 NID digits → SMS code → new password; wrong tries, locking, resend delay, hourly limit, replay; NID stored as hash + last 4 and never returned |
 | Plan visibility VIS-01, VIS-02 | 5 | Plan, seats and price reach HR only; a manager sees their department's name and size; employees are refused |
 | Leave approval scope BUG-42 | 6 | A manager's queue is their own department plus their own requests, each named; they cannot decide another department's leave or their own; HR sees all |
+| Connection reuse BUG-46 | 1 | The API keeps idle connections open for at least 60 s, so clients and proxies reuse them under load |
 
 ## 4. Performance testing — a real load model
 
@@ -167,12 +168,18 @@ reviewer approving code that does not compile is a normal Friday.
 4. `npm run build` — the frontend must build
 5. Seed, run the worker jobs (payroll, scoring, absences), start the API
 6. `scripts/smoke.mjs` — 30 checks
-7. `scripts/bughunt.mjs` — 165 checks, must print `0 defects found`
+7. `scripts/bughunt.mjs` — 166 checks, must print `0 defects found`
 8. `scripts/verify-leave-overlap.mjs`
 9. `npm audit --audit-level=high`
 
 **PostgreSQL 16 job** — steps 5 to 8 again against a real PostgreSQL service, so both
 database backends are proven on every change.
+
+**Running the PostgreSQL checks locally:** start from an empty database. The seed refuses to
+wipe a PostgreSQL database that already has data (on purpose, so a redeploy can't erase real
+records), so a second run would test the first run's leftovers and report false failures.
+CI gets a fresh service every time. Locally, for a throwaway test database only:
+`psql "$DATABASE_URL" -c 'DROP SCHEMA public CASCADE; CREATE SCHEMA public;'`
 
 Branch protection requires both jobs green. **That** is a gate; a policy is not.
 

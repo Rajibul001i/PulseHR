@@ -1082,3 +1082,49 @@ manager have none. CORR-01 now checks that the employee's manager is notified.
 
 **Re-verified:** 130 unit tests, 30 smoke checks, 165 regression checks with 0 defects, and
 the leave-overlap check, on SQLite and PostgreSQL 16.
+
+---
+
+## 19. Addendum — 7 October 2026 — full re-run and load test
+
+Every suite was run again on SQLite and on a fresh PostgreSQL 16 database. One new defect,
+found by the load test.
+
+| ID | Severity | Summary |
+|---|---|---|
+| BUG-46 | Medium | Under load, a few requests waited 7-21 s because clients kept reopening connections |
+
+### BUG-46 — Severity: Medium · idle connections closed after 5 seconds
+
+**Found by:** `scripts/loadtest.mjs`. Requests in the mixed and "everything at once" phases
+occasionally took 15-21 s, while the API itself answered every request in under 1.7 s.
+
+**Root cause:** tracing each slow request by its connection showed the server accepted the
+connection 17-19 s after the client had sent the request on it. Node's HTTP server closes
+idle connections after 5 s and tells clients so (`Keep-Alive: timeout=5`), so clients closed
+connections after a few idle seconds and opened new ones. A new connection made while the
+single-threaded server was busy could miss its first try and wait for the operating system's
+retry at 1, 3, 7 or 15 s. The client opened 384 connections in one run instead of about 150.
+
+**Fix:** `server.keepAliveTimeout = 65_000` and `server.headersTimeout = 66_000` in
+`apps/api/src/server.ts`. 65 s sits above the idle timeout of common hosting proxies, so the
+proxy never reuses a connection the API has just closed.
+
+**Result (SQLite, two runs):** 182 connections instead of 384; worst case in the busiest
+phase 1.4-1.7 s instead of 19-21 s; p99 1.3 s instead of 7.4 s; still 0 errors.
+
+**Regression check:** `bughunt.mjs` BUG-46 asserts the API advertises a keep-alive timeout of
+at least 60 s. Verified to fail on the old code (`Keep-Alive: timeout=5`) and pass on the new.
+
+### Not a defect: false failures from a re-used PostgreSQL database
+
+A local PostgreSQL run reported 1 smoke failure ("org A sees its own employees — got 23")
+and 7 regression "defects". The database still held 36 employees from earlier runs: the
+seed deliberately skips a PostgreSQL database that already has data, so nothing was reset.
+On an empty database: 30/30 smoke, 166 checks with 0 defects. `docs/07-test-plan.md` now
+says to start local PostgreSQL runs from an empty database. CI was never affected, because
+it gets a fresh PostgreSQL service each run.
+
+**Re-verified:** 130 unit tests, type-check clean, 30 smoke checks, 166 regression checks
+with 0 defects, both database-guarantee scripts, and the load test with 0 errors, on SQLite
+and PostgreSQL 16.

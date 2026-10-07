@@ -6,6 +6,31 @@ as a changelog.
 
 ---
 
+## Session 12 — 7 October 2026
+
+### Full re-run of every suite, and a connection fix found by the load test
+
+Every suite was run again on SQLite and on a fresh PostgreSQL 16 database: 130 unit tests,
+type-check, build, 30 smoke checks, the regression hunt, both database-guarantee scripts and
+the load test.
+
+- **BUG-46 (Medium):** under load a few requests waited 7 to 21 seconds although the server
+  answered each in under 1.7 s. Node closes idle connections after 5 s by default, so the
+  client kept closing and reopening connections, and a reopen made while the server was busy
+  could wait for the operating system's retry. The API now keeps idle connections for 65 s
+  (the usual setting behind a hosting proxy such as Render's). The worst case in the busiest
+  phase dropped from 19-21 s to under 2 s, and p99 from 7.4 s to 1.3 s. 1 check.
+- **Test procedure:** a local PostgreSQL run on a database left over from earlier runs
+  showed 1 smoke failure and 7 "defects". The seed never wipes a PostgreSQL database that
+  has data, by design. On an empty database everything passes. The test plan now says so.
+- README build size corrected to 376 kB (115 kB gzipped); the old 214 kB figure was from
+  before the recent features.
+
+130 unit, 30 smoke and 166 regression checks pass on SQLite and PostgreSQL 16; the load test
+has 0 errors on both (`docs/17-load-test-report.md` §7).
+
+---
+
 ## Session 11 — 27 September 2026
 
 ### Leave approval limited to the manager's department, and two screen fixes

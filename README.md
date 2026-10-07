@@ -81,11 +81,12 @@ install, no Docker.
 |---|---|
 | `npm test` | **130 / 130 passing** |
 | `npx tsc -b` | **clean**, TypeScript strict across 3 workspaces |
-| `npm run build` | frontend builds, 214 kB (70 kB gzipped) |
+| `npm run build` | frontend builds, 376 kB (115 kB gzipped) |
 | `node scripts/smoke.mjs` | **30 / 30 passing** against a live API |
-| `node scripts/bughunt.mjs` | **165 checks, 0 defects** (run on a fresh seed) |
+| `node scripts/bughunt.mjs` | **166 checks, 0 defects** (run on a fresh seed) |
 | `node scripts/verify-leave-overlap.mjs` | the database itself refuses overlapping approved leave |
-| All of the above with `DATABASE_URL` set | same results on PostgreSQL 16 |
+| `node scripts/loadtest.mjs` | 40,000+ requests at 150 concurrent users, **0 errors**, p99 at most 1.5 s ([report](docs/17-load-test-report.md#7-re-run-7-october-2026--bug-46-connection-reuse)) |
+| All of the above with `DATABASE_URL` set | same results on PostgreSQL 16, started from an empty database (the seed never wipes a PostgreSQL database that already has data) |
 | Payslip immutability trigger | verified — `UPDATE` rejected at the database level |
 
 ## Documentation
@@ -131,7 +132,7 @@ packages/core/     Pure domain logic — money, dates, leave, payroll, attrition
 apps/api/          Express API + worker jobs + migrations + seeder.
 apps/web/          React 18 SPA (Vite, Redux Toolkit).
 scripts/smoke.mjs  30 end-to-end checks, each mapped to a defect.
-scripts/bughunt.mjs 165 regression checks for every SQA defect, closed gap, shift and recovery rule.
+scripts/bughunt.mjs 166 regression checks for every SQA defect, closed gap, shift and recovery rule.
 scripts/demo.mjs   One-command demo: seed, score, payroll, serve web + API.
 tools/             fix_deck_numbering.py — repairs the deck's slide numbers.
 docs/              Groundwork.

@@ -2531,7 +2531,14 @@ app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
 });
 
 const PORT = Number(process.env.PORT ?? 4000);
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`PulseHR API listening on http://localhost:${PORT}`);
 });
+// Keep idle connections open longer than Node's 5 s default. Clients (and Render's proxy)
+// reuse a connection only while the server promises to keep it, so a short timeout makes
+// them close and reopen connections constantly. Under load each reopen queues behind busy
+// work, and a dropped connection attempt costs 1 s, 3 s, 7 s or 15 s to retry
+// (docs/17-load-test-report.md, BUG-46). headersTimeout must stay above keepAliveTimeout.
+server.keepAliveTimeout = 65_000;
+server.headersTimeout = 66_000;
 startScheduler();

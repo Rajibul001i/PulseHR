@@ -1299,6 +1299,16 @@ console.log('Leave approval is limited to the manager\'s own department');
   expect('BUG-42', 'F4.2', 'HR sees every department\'s requests', hrQueue.some((r) => r.id === other.body?.id), 'Sales request missing for HR');
 }
 
+{
+  // BUG-46: with Node's 5 s keep-alive default, clients closed and reopened connections
+  // constantly under load, and each reopen could wait 7-20 s (docs/17-load-test-report.md §7).
+  const res = await fetch(`${BASE}/api/notices`); // a 401 without a token still carries the header
+  const keepAlive = res.headers.get('keep-alive') ?? '';
+  const timeout = Number(/timeout=(\d+)/.exec(keepAlive)?.[1] ?? 0);
+  await res.arrayBuffer();
+  expect('BUG-46', 'NFR-6', 'The API keeps idle connections open for at least 60 s, so clients and proxies reuse them', timeout >= 60, `Keep-Alive: ${keepAlive || '(missing)'}`);
+}
+
 /* ---------------------------------------------------------------------- */
 console.log(`\n${checks} checks, ${findings.length} defects found\n`);
 for (const f of findings) {

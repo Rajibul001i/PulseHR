@@ -228,3 +228,58 @@ Stated plainly rather than left implicit:
 
 Full regression re-run on a clean reseed after every code change in this report — no result
 above was taken from a server process that had also served an earlier run's traffic.
+
+---
+
+## 7. Re-run, 7 October 2026 — BUG-46 connection reuse
+
+Same script, same 150 virtual users, freshly reseeded server each run, on a faster machine
+than the original pass (throughput is 2-4x the §3 figures for that reason alone).
+
+### What the re-run found
+
+Errors stayed at 0, but a few requests had extreme waits: up to 7.8 s in the read storm,
+15 s in the mixed phase and 21 s in "everything at once", with p99 in that last phase at
+7.4 s, above the 5.7 s recorded in §3.
+
+Measured step by step:
+
+| Question | Measurement | Answer |
+|---|---|---|
+| Is the event loop stalling? | `monitorEventLoopDelay` in the API | No. Worst delay 0.6 s; no GC pause over 100 ms |
+| Is the API slow to answer? | Time from request to response, inside the API | No. Slowest 1.7 s (a login); none over 2 s |
+| Is the load-test client overloaded? | Event-loop delay in the client | No. Worst 52 ms |
+| Where is the time spent? | Client send time vs. server accept time, matched by port | The server accepted the connection 17-19 s after the client sent the request on it |
+| Why so many new connections? | Connections opened by the client | 384 in one run for 150 users: idle connections were closed after 5 s (`Keep-Alive: timeout=5`) and reopened |
+| Is it this machine's network? | Same load against a bare Node server | No outliers (worst 179 ms) |
+
+### Fix
+
+`server.keepAliveTimeout = 65_000` (and `headersTimeout` above it) in `server.ts`.
+
+### Results after the fix
+
+| Phase | SQLite before: p99 / max | SQLite after: p99 / max | PostgreSQL after: p99 / max |
+|---|---|---|---|
+| 1. Multi-tenant read storm | 0.3 s / 7.8 s | 0.2 s / 6.5-6.8 s * | 0.26 s / 0.7 s |
+| 2. High-output (PDF) | 0.7 s / 1.0 s | 0.6 s / 0.7 s | 0.6 s / 0.7 s |
+| 3. Mixed read/write | 4.3-4.8 s / 14-15 s | 0.4 s / 1.9-3.4 s | 0.46 s / 0.6 s |
+| 4. Login storm | 1.6 s / 1.7 s | 1.5 s / 1.5 s | 1.5 s / 1.5 s |
+| 5. Everything at once | 2.0-7.4 s / 19-22 s | 1.3-1.4 s / 1.4-1.7 s | 1.3 s / 1.8 s |
+| Connections opened | 384-418 | 181-183 | — |
+| Genuine errors | 0 | 0 | 0 |
+
+PostgreSQL run: 45,710 requests, 0 genuine errors.
+
+\* **The one remaining outlier is the opening burst on SQLite.** All 57 requests over 3 s in
+the traced run were sent in the first 0.6-2.8 s, when 150 users connect at the same moment.
+Synchronous SQLite (ADR-004) keeps the event loop busy while the first requests run, so some
+of that burst's connections wait for an operating-system retry. It does not happen on
+PostgreSQL, whose queries don't block the event loop. A larger listen backlog did not help
+(tested: no consistent change). Real traffic doesn't open 150 connections in the same
+millisecond, and the deployed demo sits behind Render's proxy, which keeps its connections
+open; this is recorded as a known limit of the SQLite option rather than fixed.
+
+### Regression protection
+
+`bughunt.mjs` BUG-46 checks that the API advertises a keep-alive timeout of at least 60 s.
