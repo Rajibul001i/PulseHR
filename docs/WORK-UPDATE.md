@@ -6,6 +6,37 @@ as a changelog.
 
 ---
 
+## Session 13 — 8 October 2026
+
+### Full re-run; 16 dependency vulnerabilities closed
+
+Every suite was run again on SQLite and on a fresh PostgreSQL 16 database. All passed, but
+`npm audit` (a CI step that is allowed to fail) reported 16 known vulnerabilities in
+dependencies: 3 critical, 4 high, 9 moderate. None was in PulseHR's own code.
+
+- **In the running API:** `proxy-addr` (critical: a client could spoof its IP address
+  through an IPv4-mapped IPv6 address when a trusted proxy is configured), `qs` and
+  `body-parser` (denial of service), all fixed by updating `express` to 4.22.3 within its
+  current version. `nodemailer` 6.10 had several high-severity issues (denial of service
+  through crafted addresses, file read through message options, mail delivered to the wrong
+  domain); updated to 10.0.16, which ships its own types, so `@types/nodemailer` is gone.
+  The reset email was checked to still send, to the right address, with the right link.
+- **In the web app:** `react-router-dom` 6 has an open redirect through a backslash in a
+  link, fixed only in 7.18. Updated to 7.18.4; the app uses only routes with absolute paths,
+  which behave the same in 7. Every screen, the nav highlight, the risk page reached by link,
+  deep links, the back button, the password-reset link and the public careers pages were
+  checked in a browser.
+- **In the build and test tools only:** `vitest` 2 (critical, in its worker pool), `vite`
+  5 and `esbuild` (dev server). Updated to vitest 5.0.3 and vite 8.3.3 with
+  `@vitejs/plugin-react` 6.1.2. `moment`, `nanoid` and `source-map-js` were updated within
+  their versions.
+
+`npm audit`: **0 vulnerabilities**. 130 unit, 30 smoke and 166 regression checks pass on SQLite
+and PostgreSQL 16; the load test has 0 errors on both (41,631 and 52,843 requests). The web
+bundle grew from 376 kB to 395 kB (118 kB gzipped), from React Router 7.
+
+---
+
 ## Session 12 — 7 October 2026
 
 ### Full re-run of every suite, and a connection fix found by the load test

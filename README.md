@@ -81,7 +81,8 @@ install, no Docker.
 |---|---|
 | `npm test` | **130 / 130 passing** |
 | `npx tsc -b` | **clean**, TypeScript strict across 3 workspaces |
-| `npm run build` | frontend builds, 376 kB (115 kB gzipped) |
+| `npm run build` | frontend builds, 395 kB (118 kB gzipped) |
+| `npm audit` | **0 vulnerabilities** (16 closed on 8 October 2026, see `docs/WORK-UPDATE.md`) |
 | `node scripts/smoke.mjs` | **30 / 30 passing** against a live API |
 | `node scripts/bughunt.mjs` | **166 checks, 0 defects** (run on a fresh seed) |
 | `node scripts/verify-leave-overlap.mjs` | the database itself refuses overlapping approved leave |

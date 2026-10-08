@@ -283,3 +283,19 @@ open; this is recorded as a known limit of the SQLite option rather than fixed.
 ### Regression protection
 
 `bughunt.mjs` BUG-46 checks that the API advertises a keep-alive timeout of at least 60 s.
+
+## 8. Re-run, 8 October 2026 — after the dependency updates
+
+Same script and machine as §7, after updating express (4.22.3), nodemailer (10), React Router
+(7), Vite (8) and Vitest (5) to close 16 `npm audit` findings. Freshly seeded each time.
+
+| Phase | SQLite: p99 / max | PostgreSQL 16: p99 / max |
+|---|---|---|
+| 1. Multi-tenant read storm | 0.26 s / 7.3 s * | 0.23 s / 0.6 s |
+| 2. High-output (PDF) | 0.49 s / 0.6 s | 0.45 s / 0.5 s |
+| 3. Mixed read/write | 0.39 s / 3.3 s | 0.38 s / 0.4 s |
+| 4. Login storm | 1.36 s / 1.4 s | 1.39 s / 1.4 s |
+| 5. Everything at once | 1.22 s / 1.5 s | 1.28 s / 1.4 s |
+| Requests / genuine errors | 41,631 / 0 | 52,843 / 0 |
+
+\* The SQLite opening burst described in §7, unchanged: not affected by the updates.
